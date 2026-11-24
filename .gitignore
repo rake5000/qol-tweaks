@@ -1,0 +1,7 @@
+/build/
+/.zig-cache/
+*.pdb
+*.exe
+*.dll
+*.lib
+*.log
