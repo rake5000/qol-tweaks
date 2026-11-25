@@ -104,21 +104,34 @@ DK2ML_Status qol_collect_option(const DK2ML_Option *option){
  }
  return DK2ML_OK;
 }
-static void reset_all(const DK2ML_Option *option,void *user){
- (void)option;(void)user;capture=-1;conflict_notice=false;
- // Restore every value before callbacks: some save an entire feature at once.
+static void reset_settings(int page){
+ capture=-1;conflict_notice=false;
+ // Apply all values in scope before callbacks that save a whole feature.
  for(size_t i=0;i<option_count;i++){
+  if(page>=0&&options[i].section!=page)continue;
   DK2ML_Option *o=&options[i].option;
   if(o->type==DK2ML_OPTION_BOOL)*(bool*)o->value=options[i].defaults.boolean;
   if(o->type==DK2ML_OPTION_INT)*(int*)o->value=options[i].defaults.integer;
   if(o->type==DK2ML_OPTION_FLOAT)*(float*)o->value=options[i].defaults.real;
  }
- for(size_t i=0;i<option_count;i++)if(options[i].option.onChange)options[i].option.onChange(&options[i].option,options[i].option.user);
- for(size_t i=0;i<COUNT(bindings);i++){
-  bindings[i].key=bindings[i].last_key=bindings[i].default_key;
-  bindings[i].mods=bindings[i].last_mods=bindings[i].default_mods;
+ for(size_t i=0;i<option_count;i++){
+  DK2ML_Option *o=&options[i].option;
+  if((page<0||options[i].section==page)&&o->onChange)o->onChange(o,o->user);
  }
- save_bindings();qol_reset_speed_runtime();api->Log("QOL Tweaks settings and bindings reset to the fixed 2026-11-17 defaults.");
+ QolBinding updated[COUNT(bindings)];
+ memcpy(updated,bindings,sizeof updated);
+ for(size_t i=0;i<COUNT(updated);i++){
+  if(page>=0&&updated[i].section!=page)continue;
+  updated[i].key=updated[i].last_key=updated[i].default_key;
+  updated[i].mods=updated[i].last_mods=updated[i].default_mods;
+ }
+ for(size_t i=0;i<COUNT(updated);i++)
+  if(qol_conflicts(updated,COUNT(updated),i)){conflict_notice=true;break;}
+ if(!conflict_notice){memcpy(bindings,updated,sizeof bindings);save_bindings();}
+ if(page<0||page==3)qol_reset_speed_runtime();
+}
+static void reset_all(const DK2ML_Option *option,void *user){
+ (void)option;(void)user;reset_settings(-1);
 }
 int qol_ui_prepare(const DK2ML_API *loader){
  api=loader;const wchar_t *dir=api->GetConfigDir();if(!dir||wcslen(dir)+17>=MAX_PATH)return 1;
@@ -143,13 +156,17 @@ int qol_ui_prepare(const DK2ML_API *loader){
  if(api->GetEnumValue("ImGuiDataType_","ImGuiDataType_S32",&t)!=DK2ML_OK)return 1;scalar_int=(int)t;
  return !(button&&checkbox&&slider&&text&&same_line);
 }
+static bool is_default_slow_speed(const DK2ML_Option *option){
+ return strcmp(option->label,"Default slow-motion speed")==0;
+}
+
 int qol_ui_register(void){
  for(int group=0;group<5;group++){
   DK2ML_Option header={0};header.structSize=sizeof header;header.type=DK2ML_OPTION_HEADER;header.label=sections[group];
   if(api->AddOption(&header)!=DK2ML_OK)return 1;
   for(size_t i=0;i<option_count;i++)if(options[i].section==group){
    DK2ML_Option o=options[i].option;
-   if(strstr(o.label,"replays"))o.label="Play replays at normal speed";
+   if(is_default_slow_speed(&o))continue;
    if(api->AddOption(&o)!=DK2ML_OK)return 1;
   }
   for(size_t i=0;i<COUNT(bindings);i++)if(bindings[i].section==group){
@@ -160,6 +177,9 @@ int qol_ui_register(void){
    char label[128];snprintf(label,sizeof label,"Modifiers: %s",bindings[i].label);
    o.type=DK2ML_OPTION_CHOICE;o.label=label;o.value=&bindings[i].mods;o.choices=modifier_choices;o.choiceCount=8;
    if(api->AddOption(&o)!=DK2ML_OK)return 1;
+  }
+  for(size_t i=0;i<option_count;i++)if(options[i].section==group&&is_default_slow_speed(&options[i].option)){
+   if(api->AddOption(&options[i].option)!=DK2ML_OK)return 1;
   }
  }
  DK2ML_Option reset={0};reset.structSize=sizeof reset;reset.type=DK2ML_OPTION_BUTTON;
@@ -184,6 +204,16 @@ static void draw_binding(size_t i){
  if(button(label,&key_size,0))capture=(int)i;
 }
 
+static void draw_option(DK2ML_Option *o){
+  bool changed=false;
+  const char *label=o->label;
+  if(o->type==DK2ML_OPTION_BOOL)changed=checkbox(label,o->value);
+  else if(o->type==DK2ML_OPTION_FLOAT){float low=o->min,high=o->max;changed=slider(label,scalar_float,o->value,&low,&high,o->format?o->format:"%.2f",0);}
+  else if(o->type==DK2ML_OPTION_INT){int low=(int)o->min,high=(int)o->max;changed=slider(label,scalar_int,o->value,&low,&high,o->format?o->format:"%d",0);}
+  if(changed&&o->onChange)o->onChange(o,o->user);
+  if(strcmp(label,"Play replays at normal speed")==0)text("%s",o->tooltip);
+}
+
 void qol_draw_settings(int page,void (*heading)(const char *)){
  if(page<0||page>=(int)COUNT(sections))return;
  if(page!=0)heading(sections[page]);
@@ -193,14 +223,8 @@ void qol_draw_settings(int page,void (*heading)(const char *)){
   text("their breaching positions and enough room around the");
   text("doorway for the required waypoints.");
  }
- for(size_t i=0;i<option_count;i++)if(options[i].section==page){
-  DK2ML_Option *o=&options[i].option;bool changed=false;
-  const char *label=strstr(o->label,"replays")?"Play replays at normal speed":o->label;
-  if(o->type==DK2ML_OPTION_BOOL)changed=checkbox(label,o->value);
-  else if(o->type==DK2ML_OPTION_FLOAT){float low=o->min,high=o->max;changed=slider(label,scalar_float,o->value,&low,&high,o->format?o->format:"%.2f",0);}
-  else if(o->type==DK2ML_OPTION_INT){int low=(int)o->min,high=(int)o->max;changed=slider(label,scalar_int,o->value,&low,&high,o->format?o->format:"%d",0);}
-  if(changed&&o->onChange)o->onChange(o,o->user);
- }
+ for(size_t i=0;i<option_count;i++)if(options[i].section==page&&!is_default_slow_speed(&options[i].option))
+  draw_option(&options[i].option);
  if(page==0){
   heading("Movement");
   draw_binding(0);draw_binding(2);
@@ -211,10 +235,12 @@ void qol_draw_settings(int page,void (*heading)(const char *)){
  }else{
   for(size_t i=0;i<COUNT(bindings);i++)if(bindings[i].section==page)draw_binding(i);
  }
+ for(size_t i=0;i<option_count;i++)if(options[i].section==page&&is_default_slow_speed(&options[i].option))
+  draw_option(&options[i].option);
  if(capture>=0)text("Press a key with optional Ctrl/Shift/Alt. Esc cancels; Backspace/Delete clears.");
  if(conflict_notice)text("That combination is already assigned or reserved. Previous binding kept.");
 }
-void qol_draw_reset(void){
+void qol_draw_reset(int page){
  const Vec2 automatic={0,0};
- if(button("Reset QOL Tweaks",&automatic,0))reset_all(NULL,NULL);
+ if(button("Reset this tab",&automatic,0))reset_settings(page);
 }

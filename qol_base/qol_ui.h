@@ -7,7 +7,7 @@ int qol_ui_prepare(const DK2ML_API *loader);
 DK2ML_Status qol_collect_option(const DK2ML_Option *option);
 int qol_ui_register(void);
 void qol_draw_settings(int page,void (*heading)(const char *));
-void qol_draw_reset(void);
+void qol_draw_reset(int page);
 unsigned qol_resolve_key(unsigned key,unsigned modifiers);
 unsigned qol_current_modifiers(void);
 int qol_capture_key(unsigned message,unsigned key);

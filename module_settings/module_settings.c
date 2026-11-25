@@ -57,7 +57,7 @@ static void draw_speed_settings(bool *found){
     if(!addon||!GetProcAddress(addon,"R5K_SetDefaultSlowSpeed"))return;
 #endif
     imgui_text("Simulation speed");int low=10,high=90;
-    if(imgui_slider("Default slow-motion speed (*)",integer_type,&default_slow_percent,&low,&high,"%d%%",0))save_speed_default(NULL,NULL);
+    if(imgui_slider("Default slow-motion speed",integer_type,&default_slow_percent,&low,&high,"%d%%",0))save_speed_default(NULL,NULL);
     imgui_text("* toggles 100%% and the last custom speed; this sets its starting value.");
     *found=true;
 }
@@ -88,10 +88,14 @@ static void open_settings(void *item,float x,float y,void *user) {
     if(api->IsGameMenuOpen())window_open=!window_open;
 }
 
-static void draw_provider(const char *interface_name,bool *found) {
+static const R5K_SettingsModule *get_provider(const char *interface_name) {
     const R5K_SettingsModule *module=(const R5K_SettingsModule *)api->GetInterface(
         interface_name,R5K_SETTINGS_API_VERSION,NULL);
-    if(!module||module->structSize<sizeof(R5K_SettingsModule)||!module->label||!module->draw)return;
+    return module&&module->structSize>=sizeof(R5K_SettingsModule)&&module->label&&module->draw?module:NULL;
+}
+static void draw_provider(const char *interface_name,bool *found) {
+    const R5K_SettingsModule *module=get_provider(interface_name);
+    if(!module)return;
     module->draw();
     *found=true;
 }
@@ -107,8 +111,6 @@ static int tab_no_push_id, separator_horizontal, tab_scroll;
 static int visible_qol_page=-1;
 
 static void menu_heading(const char *label) {
-    spacing();
-    separator_ex(separator_horizontal,1.0f);
     r5k_settings_heading(api,imgui_text,label,true);
     spacing();
 }
@@ -118,14 +120,31 @@ static bool menu_tab(const char *label) {
     return begin_tab_item(label,NULL,tab_no_push_id);
 }
 
+static bool any_provider(const char *const *keys) {
+    for(;*keys;keys++)if(get_provider(*keys))return true;
+    return false;
+}
+
 static void draw_shared_menu(void) {
     const ImVec2 minimum_width={520.0f,0.0f};
     dummy(&minimum_width);
-    bool found=false, qol_selected=false;
+    bool found=false;
+    const char *const *reset_modules=NULL;
+    const ImVec2 automatic_size={0.0f,0.0f};
+    static const char *const npc_reset[]={"Rake5000.Settings.ControlHVTs",NULL};
+    static const char *const combat_reset[]={"Rake5000.Settings.SolidCharacters","Rake5000.Settings.ReloadWhileMoving",
+        "Rake5000.Settings.FriendlyFiringLanes","Rake5000.Settings.MovingSuppression",NULL};
+    static const char *const contact_reset[]={"Rake5000.Settings.PauseOnContact",NULL};
+    static const char *const squad_reset[]={"Rake5000.Settings.TrooperFollow",NULL};
+    static const char *const display_reset[]={"Rake5000.Settings.ReinforcementOverlay",NULL};
+    const bool npc_available=any_provider(npc_reset);
+    const bool combat_available=any_provider(combat_reset);
+    const bool contact_available=any_provider(contact_reset);
+    const bool squad_available=any_provider(squad_reset);
+    const bool display_available=any_provider(display_reset);
     int qol_page=-1;
     if(begin_tab_bar("##modules",tab_scroll)){
         if(menu_tab("QOL Tweaks")){
-            qol_selected=true;
             static const char *pages[]={"Controls","Go-Codes","Breaching","Speed & Replays","Names"};
             if(begin_tab_bar("##qol_pages",tab_scroll)){
                 for(int i=0;i<(int)(sizeof pages/sizeof pages[0]);i++){
@@ -137,43 +156,46 @@ static void draw_shared_menu(void) {
                 end_tab_bar();
             }
         }
-        if(menu_tab("Gameplay Tweaks")){
+        if((npc_available||combat_available||contact_available)&&menu_tab("Gameplay Tweaks")){
             if(begin_tab_bar("##gameplay_pages",tab_scroll)){
-                if(menu_tab("NPC Control")){
-                    spacing();
-                    separator_ex(separator_horizontal,1.0f);
+                if(npc_available&&menu_tab("NPC Control")){
+                    reset_modules=npc_reset;
                     draw_provider("Rake5000.Settings.ControlHVTs",&found);
                 }
-                if(menu_tab("Movement & Combat")){
-                    menu_heading("Movement");
+                if(combat_available&&menu_tab("Movement & Combat")){
+                    reset_modules=combat_reset;
+                    if(get_provider(combat_reset[0])||get_provider(combat_reset[1]))menu_heading("Movement");
                     draw_provider("Rake5000.Settings.SolidCharacters",&found);
                     draw_provider("Rake5000.Settings.ReloadWhileMoving",&found);
-                    menu_heading("Combat");
+                    if(get_provider(combat_reset[2])||get_provider(combat_reset[3]))menu_heading("Combat");
                     draw_provider("Rake5000.Settings.FriendlyFiringLanes",&found);
                     draw_provider("Rake5000.Settings.MovingSuppression",&found);
                 }
-                if(menu_tab("Contact")){
+                if(contact_available&&menu_tab("Contact")){
+                    reset_modules=contact_reset;
                     menu_heading("Contact response");
                     draw_provider("Rake5000.Settings.PauseOnContact",&found);
                 }
                 end_tab_bar();
             }
-            if(!found)imgui_text("No Gameplay Tweaks settings are available on this page.");
         }
-        if(menu_tab("Add-ons")){
+        if((squad_available||display_available)&&menu_tab("Add-ons")){
             if(begin_tab_bar("##addon_pages",tab_scroll)){
-                if(menu_tab("Squad")){
+                if(squad_available&&menu_tab("Squad")){
+                    reset_modules=squad_reset;
                     menu_heading("Squad behaviour");
                     draw_provider("Rake5000.Settings.TrooperFollow",&found);
                 }
-                if(menu_tab("Display")){
-                    menu_heading("Camera and overlays");
-                    draw_provider("Rake5000.Settings.RTSCamera",&found);
+                if(display_available&&menu_tab("Display")){
+                    reset_modules=display_reset;
                     draw_provider("Rake5000.Settings.ReinforcementOverlay",&found);
                 }
                 end_tab_bar();
             }
-            if(!found)imgui_text("No add-on settings are available on this page.");
+        }
+        if(get_provider("Rake5000.Settings.RTSCamera")&&menu_tab("RTS Camera")){
+            menu_heading("RTS Camera");
+            draw_provider("Rake5000.Settings.RTSCamera",&found);
         }
         end_tab_bar();
     }
@@ -182,11 +204,15 @@ static void draw_shared_menu(void) {
     spacing();
     separator_ex(separator_horizontal,1.0f);
     spacing();
-    if(qol_selected){
-        qol_draw_reset();
+    if(qol_page>=0){
+        qol_draw_reset(qol_page);
         imgui_same_line(0.0f,-1.0f);
     }
-    const ImVec2 automatic_size={0.0f,0.0f};
+    if(reset_modules&&found){
+        if(imgui_button_ex("Reset this tab",&automatic_size,0))
+            for(const char *const *key=reset_modules;*key;key++)r5k_reset_module(get_provider(*key));
+        imgui_same_line(0.0f,-1.0f);
+    }
     if(imgui_button_ex("Close",&automatic_size,0))window_open=false;
 }
 #endif
@@ -291,8 +317,8 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
     default_slow_percent=GetPrivateProfileIntW(L"Speed",L"DefaultSlowPercent",50,speed_config);
     if(default_slow_percent<10||default_slow_percent>90)default_slow_percent=50;
     DK2ML_Option speed_option={0};speed_option.structSize=sizeof speed_option;
-    speed_option.type=DK2ML_OPTION_INT;speed_option.label="Default slow-motion speed (*)";
-    speed_option.tooltip="Starting custom speed for *; +/- subsequently updates the remembered speed. Requires Speed Changer 1.1.0.";
+    speed_option.type=DK2ML_OPTION_INT;speed_option.label="Default slow-motion speed";
+    speed_option.tooltip="Starting custom speed for the normal/custom toggle. The increase and decrease bindings update the remembered speed.";
     speed_option.value=&default_slow_percent;speed_option.min=10;speed_option.max=90;speed_option.onChange=save_speed_default;
     if(api->AddOption(&speed_option)!=DK2ML_OK)return 2;
     off_imgui_io=api->GetFieldOffset("ImGuiContext","IO");
