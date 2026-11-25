@@ -21,7 +21,7 @@ __declspec(dllexport) const char *DESCRIPTION = "Ctrl+S suppressive fire, F Flas
 static uintptr_t image;
 #include "port_common.h"
 #include "door_settings.h"
-DK2ML_PLUGIN_MANIFEST(3, "Cursor Hotkeys", "1.4.5", "Rake5000", "", 112);
+DK2ML_PLUGIN_MANIFEST(3, "Cursor Hotkeys", "1.4.6", "Rake5000", "", 112);
 
 
 static bool checked, compatible;
@@ -359,26 +359,67 @@ static void scan_grenade_buttons(void *node,unsigned depth,GrenadeChoice *best) 
     if(n<0||n>128)return;
     for(int i=0;i<n;++i)scan_grenade_buttons(children[i],depth+1,best);
 }
+typedef struct {
+    uintptr_t wheel,client,waypoint,human;
+    uint32_t waypoint_id,human_id;
+} GrenadeContext;
+
+static bool grenade_context(GrenadeContext *context) {
+    uintptr_t gui=0,table=0,fn=0;
+    uint32_t owner=0;
+    GrenadeContext c={0};
+    if(!read_at(image+0xfe71a8,&gui,8)||!gui||!read_at(gui+8,&c.wheel,8)||!c.wheel||
+        !api->GuiIsShown((void*)c.wheel)||
+        !read_at(c.wheel+856,&c.waypoint_id,4)||!c.waypoint_id||c.waypoint_id>100000||
+        !read_at(image+0xff0ea8,&c.client,8)||!c.client||
+        !read_at(c.client+0x2e8+c.waypoint_id*8,&c.waypoint,8)||!c.waypoint||
+        !read_at(c.waypoint,&table,8)||!table||!read_at(table+8,&fn,8)||fn!=actionwp_get_type||
+        !read_at(c.waypoint+0x220,&owner,4)||owner>100000||
+        !read_at(c.client+0x2e8+owner*8,&c.human,8)||!friendly_human(c.human,c.client,&c.human_id))
+        return false;
+    *context=c;
+    return true;
+}
+
+static bool switch_grenade_wheel(uintptr_t wheel) {
+    static const char *const switches[]={"#switch_to_path_options","#switch_to_target_options"};
+    for(unsigned i=0;i<sizeof(switches)/sizeof(switches[0]);++i) {
+        void *button=api->GuiFind((void*)wheel,switches[i]);
+        unsigned char accepts=0;
+        if(button&&api->GuiIsShown(button)&&read_at((uintptr_t)button+144,&accepts,1)&&accepts)
+            return api->GuiClick(button)==DK2ML_OK;
+    }
+    return false;
+}
+
 static void dispatch_grenade(unsigned binding) {
-    uintptr_t gui=0,wheel=0,client=0,wp=0,human=0,table=0,fn=0;
-    uint32_t wp_id=0,owner=0,id=0;
-    if(!read_at(image+0xfe71a8,&gui,8)||!read_at(gui+8,&wheel,8)||
-        !read_at(wheel+848+8,&wp_id,4)||!wp_id||wp_id>100000||
-        !read_at(image+0xff0ea8,&client,8)||!read_at(client+0x2e8+wp_id*8,&wp,8)||!wp||
-        !read_at(wp,&table,8)||!read_at(table+8,&fn,8)||fn!=actionwp_get_type||
-        !read_at(wp+0x220,&owner,4)||owner>100000||!read_at(client+0x2e8+owner*8,&human,8)||
-        !friendly_human(human,client,&id)) {
+    GrenadeContext context;
+    if(!grenade_context(&context)) {
         api->Log("Grenade hotkey: no valid friendly trooper context; no order placed.");return;
     }
-    GrenadeChoice best={0};best.human=human;best.slot=27;best.desired=binding==BIND_FRAG?2:1;
-    scan_grenade_buttons((void*)wheel,0,&best);
-    if(best.slot==27) {
-        api->Log("Grenade hotkey: no available %s action; no order placed.",best.desired==1?"flash/9-bang":"frag");api->GuiShow((void*)wheel,0);return;
+    GrenadeChoice best={.human=context.human,.slot=27,.desired=binding==BIND_FRAG?2:1};
+    scan_grenade_buttons((void*)context.wheel,0,&best);
+    if(!best.button&&switch_grenade_wheel(context.wheel)) {
+        // The native page event can rebuild the GUI tree. Read fresh items
+        // and require the request to still refer to the same waypoint and trooper.
+        GrenadeContext next;
+        if(!grenade_context(&next)||next.client!=context.client||
+            next.waypoint_id!=context.waypoint_id||next.waypoint!=context.waypoint||
+            next.human!=context.human||next.human_id!=context.human_id)return;
+        context=next;
+        best.visited=0;
+        scan_grenade_buttons((void*)context.wheel,0,&best);
     }
+    if(!best.button) {
+        api->Log("Grenade hotkey: no available %s action; no order placed.",best.desired==1?"flash/9-bang":"frag");
+        api->GuiShow((void*)context.wheel,0);
+        return;
+    }
+    uintptr_t wp=context.waypoint;
     uint32_t before=0,after=0;read_at(wp+0x1f0,&before,4);
     DK2ML_Status result=api->GuiClick(best.button);
     read_at(wp+0x1f0,&after,4);
-    api->Log("Grenade hotkey: native click %s slot=%d trooper=%u status=%d action before=%u after=%u.",best.name,best.slot,id,result,before,after);
+    api->Log("Grenade hotkey: native click %s slot=%d trooper=%u status=%d action before=%u after=%u.",best.name,best.slot,context.human_id,result,before,after);
 }
 
 #include "suppression_hotkey.h"

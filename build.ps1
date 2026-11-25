@@ -19,6 +19,11 @@ if ($RunTests) {
     if($LASTEXITCODE -ne 0){throw 'QOL settings tests build failed'}
     & (Join-Path $build 'test_qol_settings.exe')
     if($LASTEXITCODE -ne 0){throw 'QOL settings tests failed'}
+    $grenadeTest=Join-Path $build 'test_grenade_wheel.exe'
+    & $Zig cc -target x86_64-windows-gnu -O0 -Wall -Wextra -Werror (Join-Path $project 'modloader_ports/test_grenade_wheel.c') -o $grenadeTest -luser32 -lgdi32
+    if($LASTEXITCODE -ne 0){throw 'Grenade wheel test build failed'}
+    & $grenadeTest
+    if($LASTEXITCODE -ne 0){throw 'Grenade wheel tests failed'}
     $speed=Join-Path $project 'speed_changer'
     & $Zig cc -DR5K_QOL_NATIVE -target x86_64-windows-gnu -O2 -Wall -Wextra -Werror (Join-Path $speed 'test_speed_step.c') (Join-Path $speed 'test_speed_step.S') (Join-Path $speed 'speed_step.S') -o (Join-Path $build 'test_native_speed_step.exe')
     if($LASTEXITCODE -ne 0){throw 'Native speed test build failed'}
