@@ -11,7 +11,7 @@ static SHORT fake_key_state(int key){
 static wchar_t test_dir[MAX_PATH];
 static int reset_speed_calls,registered,headers;static int section_seen[5];
 static bool order_enabled=false,replay_enabled=false,name_hover=true,name_always=false,speed_enabled=false;
-static float breach=1.9f,retreat=2.0f,buddy=1.3f,name_size=23,gap=39;
+static float name_size=23,gap=39;
 static int speed_default=80;
 static int callbacks;
 void qol_reset_speed_runtime(void){reset_speed_calls++;}
@@ -27,7 +27,7 @@ static DK2ML_Status mock_add(const DK2ML_Option *option){
 static void observe_reset(const DK2ML_Option *option,void *user){
  (void)option;(void)user;callbacks++;
  assert(order_enabled&&replay_enabled&&name_always&&speed_enabled&&!name_hover);
- assert(breach==1.14f&&retreat==.30f&&buddy==.50f&&name_size==10&&gap==20&&speed_default==50);
+ assert(name_size==10&&gap==20&&speed_default==50);
 }
 static void collect(const char *label,DK2ML_OptionType type,void *value){
  DK2ML_Option o={0};o.structSize=sizeof o;o.type=type;o.label=label;o.value=value;o.min=0;o.max=100;o.onChange=observe_reset;
@@ -56,9 +56,6 @@ int main(void){
  capture=1;qol_cancel_capture();assert(!qol_is_capturing());assert(!qol_capture_key(WM_KEYDOWN,'X'));
  collect("Enable additional hotkeys",DK2ML_OPTION_BOOL,&order_enabled);
  collect("Play replays at normal speed",DK2ML_OPTION_BOOL,&replay_enabled);
- collect("Breaching distance from door center",DK2ML_OPTION_FLOAT,&breach);
- collect("Retreat distance after opening",DK2ML_OPTION_FLOAT,&retreat);
- collect("Buddy staging distance",DK2ML_OPTION_FLOAT,&buddy);
  collect("Show names on trooper or path hover",DK2ML_OPTION_BOOL,&name_hover);
  collect("Always show trooper names",DK2ML_OPTION_BOOL,&name_always);
  collect("Name size",DK2ML_OPTION_FLOAT,&name_size);collect("Gap below feet",DK2ML_OPTION_FLOAT,&gap);

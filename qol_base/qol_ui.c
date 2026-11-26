@@ -17,7 +17,7 @@ static QolBinding bindings[]={
  B("Assign go-code C",1,'3','3',QOL_SHIFT),B("Assign go-code D",1,'4','4',QOL_SHIFT),
  B("Toggle autoexecution A",1,QOL_AUTO_A,'1',QOL_CTRL),B("Toggle autoexecution B",1,QOL_AUTO_A+1,'2',QOL_CTRL),
  B("Toggle autoexecution C",1,QOL_AUTO_A+2,'3',QOL_CTRL),B("Toggle autoexecution D",1,QOL_AUTO_A+3,'4',QOL_CTRL),
- B("Breaching sequence",2,257,'O',0),B("Open door only",2,258,'O',QOL_SHIFT),
+ B("Open & center-check",2,257,'O',0),B("Open door only",2,258,'O',QOL_SHIFT),
  B("Increase game speed",3,QOL_SPEED_UP,VK_ADD,0),B("Decrease game speed",3,QOL_SPEED_DOWN,VK_SUBTRACT,0),
  B("Toggle normal / custom speed",3,QOL_SPEED_TOGGLE,VK_MULTIPLY,0)
 };
@@ -34,7 +34,7 @@ static bool (*slider)(const char*,int,void*,const void*,const void*,const char*,
 static void (*text)(const char*,...);static void (*same_line)(float,float);
 static void (*align_text)(void);
 static float (*text_line_height)(void);
-static const char *sections[]={"Orders & Shortcuts","Go-Codes","Open & Center-Check","Game Speed & Replays","Trooper Names"};
+static const char *sections[]={"Orders & Shortcuts","Go-Codes","Open & Center-Check (Experimental)","Game Speed & Replays","Trooper Names"};
 static const char *modifier_choices[]={"None","Shift","Ctrl","Ctrl + Shift","Alt","Alt + Shift","Ctrl + Alt","Ctrl + Alt + Shift"};
 extern void qol_reset_speed_runtime(void);
 static bool reserved_key(int key){
@@ -88,17 +88,13 @@ DK2ML_Status qol_collect_option(const DK2ML_Option *option){
  QolOption *entry=&options[option_count++];entry->option=*option;const char *label=option->label;
  entry->section=0;
  if(strstr(label,"go-codes"))entry->section=1;
- if(strstr(label,"Breaching")||strstr(label,"Retreat")||strstr(label,"Buddy"))entry->section=2;
  if(strstr(label,"speed")||strstr(label,"Speed")||strstr(label,"replays"))entry->section=3;
  if(strstr(label,"trooper")||strstr(label,"Name size")||strstr(label,"Gap below"))entry->section=4;
  // Fixed defaults from the user's saved settings snapshot, 2026-11-17.
  if(option->type==DK2ML_OPTION_BOOL){entry->defaults.boolean=true;if(strstr(label,"on trooper or path hover"))entry->defaults.boolean=false;}
  if(option->type==DK2ML_OPTION_INT)entry->defaults.integer=50;
  if(option->type==DK2ML_OPTION_FLOAT){
-  if(strstr(label,"Breaching"))entry->defaults.real=1.14f;
-  else if(strstr(label,"Retreat"))entry->defaults.real=.30f;
-  else if(strstr(label,"Buddy"))entry->defaults.real=.50f;
-  else if(strstr(label,"Name size"))entry->defaults.real=10;
+  if(strstr(label,"Name size"))entry->defaults.real=10;
   else if(strstr(label,"Gap below"))entry->defaults.real=20;
   else return DK2ML_ERROR;
  }
@@ -173,6 +169,7 @@ int qol_ui_register(void){
    DK2ML_Option o={0};o.structSize=sizeof o;o.type=DK2ML_OPTION_KEY;o.label=bindings[i].label;
    o.value=&bindings[i].key;o.onChange=binding_changed;o.user=(void*)(uintptr_t)i;
    o.tooltip="Click to change the keyboard key; Backspace/Delete unbinds. Choose modifiers in the next row. Duplicate QOL combinations are refused.";
+   if(bindings[i].action==257)o.tooltip="The sequence only works on unlocked doors. Sufficient space and unobstructed paths are required for automatic waypoint placement.";
    if(api->AddOption(&o)!=DK2ML_OK)return 1;
    char label[128];snprintf(label,sizeof label,"Modifiers: %s",bindings[i].label);
    o.type=DK2ML_OPTION_CHOICE;o.label=label;o.value=&bindings[i].mods;o.choices=modifier_choices;o.choiceCount=8;
@@ -218,10 +215,8 @@ void qol_draw_settings(int page,void (*heading)(const char *)){
  if(page<0||page>=(int)COUNT(sections))return;
  if(page!=0)heading(sections[page]);
  if(page==2){
-  text("The breaching sequence only works on unlocked doors.");
-  text("Troopers need a straight path from where they stand to");
-  text("their breaching positions and enough room around the");
-  text("doorway for the required waypoints.");
+  text("The sequence only works on unlocked doors.");
+  text("Sufficient space and unobstructed paths are required\nfor automatic waypoint placement.");
  }
  for(size_t i=0;i<option_count;i++)if(options[i].section==page&&!is_default_slow_speed(&options[i].option))
   draw_option(&options[i].option);

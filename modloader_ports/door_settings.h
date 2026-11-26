@@ -15,6 +15,7 @@ static const float door_buddy_min=.20f,door_buddy_max=1.50f;
 static float door_breach_distance=1.14f;
 static const float door_breach_min=.2f,door_breach_max=2.0f;
 static const float door_distance_min=.1f,door_distance_max=3.0f;
+#ifndef R5K_QOL_UI
 static bool (*door_distance_slider)(const char *,int,void *,const void *,const void *,const char *,int);
 static int door_distance_type;
 static void door_breach_changed(const DK2ML_Option *option,void *user) {
@@ -44,6 +45,7 @@ static void draw_door_settings(void) {
  imgui_text("Position along the wall from door center. O positions, opens and retreats while aiming.");
 
 }
+#endif
 static bool configure_door_settings(void) {
  if(settings_path[0])autoexecute_go_codes=GetPrivateProfileIntW(L"GoCodes",L"AutoExecute",1,settings_path)!=0;
  if(settings_path[0]) {
@@ -61,14 +63,17 @@ static bool configure_door_settings(void) {
   wchar_t text[64],*end=NULL;GetPrivateProfileStringW(L"Door",L"BuddyStagingDistance",L"0.50",text,64,settings_path);
   float value=wcstof(text,&end);if(end!=text&&!*end&&isfinite(value)&&value>=door_buddy_min&&value<=door_buddy_max)door_buddy_spacing=value;
  }
+#ifndef R5K_QOL_UI
  door_distance_slider=(bool (*)(const char *,int,void *,const void *,const void *,const char *,int))api->ResolveSymbol("ImGui::SliderScalar");
  int64_t value=0;
  if(!door_distance_slider||api->GetEnumValue("ImGuiDataType_","ImGuiDataType_Float",&value)!=DK2ML_OK)return false;
  door_distance_type=(int)value;
+#endif
  DK2ML_Option o={0};o.structSize=sizeof(o);o.type=DK2ML_OPTION_BOOL;
  o.label="Auto-execute go-codes";o.tooltip="Applies A-D autoexecution to this mission and sets the default for future missions. Individual Ctrl+1-4 toggles remain available.";
  o.value=&autoexecute_go_codes;o.onChange=autoexecute_changed;
  if(api->AddOption(&o)!=DK2ML_OK)return false;
+#ifndef R5K_QOL_UI
  memset(&o,0,sizeof(o));o.structSize=sizeof(o);o.type=DK2ML_OPTION_FLOAT;
  o.label="Breaching distance from door center";o.tooltip="Along-wall distance from closed-door center. O positions, opens and retreats while aiming; saves live and applies to next O.";
  o.value=&door_breach_distance;o.min=door_breach_min;o.max=door_breach_max;o.format="%.2f m";o.onChange=door_breach_changed;
@@ -80,6 +85,7 @@ static bool configure_door_settings(void) {
  o.value=&door_buddy_spacing;o.min=door_buddy_min;o.max=door_buddy_max;o.onChange=door_buddy_changed;
  if(api->AddOption(&o)!=DK2ML_OK)return false;
  shared_settings.draw=draw_door_settings;
+#endif
  return true;
 }
 #endif
