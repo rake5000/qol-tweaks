@@ -34,7 +34,7 @@ static bool (*slider)(const char*,int,void*,const void*,const void*,const char*,
 static void (*text)(const char*,...);static void (*same_line)(float,float);
 static void (*align_text)(void);
 static float (*text_line_height)(void);
-static const char *sections[]={"Orders & Shortcuts","Go-Codes","Breaching (Experimental)","Game Speed & Replays","Trooper Names"};
+static const char *sections[]={"Orders & Shortcuts","Go-Codes","Open & Center-Check","Game Speed & Replays","Trooper Names"};
 static const char *modifier_choices[]={"None","Shift","Ctrl","Ctrl + Shift","Alt","Alt + Shift","Ctrl + Alt","Ctrl + Alt + Shift"};
 extern void qol_reset_speed_runtime(void);
 static bool reserved_key(int key){

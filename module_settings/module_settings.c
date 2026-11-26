@@ -145,7 +145,7 @@ static void draw_shared_menu(void) {
     int qol_page=-1;
     if(begin_tab_bar("##modules",tab_scroll)){
         if(menu_tab("QOL Tweaks")){
-            static const char *pages[]={"Controls","Go-Codes","Breaching","Speed & Replays","Names"};
+            static const char *pages[]={"Controls","Go-Codes","Open & Center-Check","Speed & Replays","Names"};
             if(begin_tab_bar("##qol_pages",tab_scroll)){
                 for(int i=0;i<(int)(sizeof pages/sizeof pages[0]);i++){
                     if(!menu_tab(pages[i]))continue;
