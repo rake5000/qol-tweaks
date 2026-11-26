@@ -169,7 +169,7 @@ int qol_ui_register(void){
    DK2ML_Option o={0};o.structSize=sizeof o;o.type=DK2ML_OPTION_KEY;o.label=bindings[i].label;
    o.value=&bindings[i].key;o.onChange=binding_changed;o.user=(void*)(uintptr_t)i;
    o.tooltip="Click to change the keyboard key; Backspace/Delete unbinds. Choose modifiers in the next row. Duplicate QOL combinations are refused.";
-   if(bindings[i].action==257)o.tooltip="The sequence only works on unlocked doors. Sufficient space and unobstructed paths are required for automatic waypoint placement.";
+   if(bindings[i].action==257)o.tooltip="The sequence only works on unlocked doors. Sufficient space and unobstructed straight paths from the current positions are required for automatic waypoint placement.";
    if(api->AddOption(&o)!=DK2ML_OK)return 1;
    char label[128];snprintf(label,sizeof label,"Modifiers: %s",bindings[i].label);
    o.type=DK2ML_OPTION_CHOICE;o.label=label;o.value=&bindings[i].mods;o.choices=modifier_choices;o.choiceCount=8;
@@ -216,7 +216,7 @@ void qol_draw_settings(int page,void (*heading)(const char *)){
  if(page!=0)heading(sections[page]);
  if(page==2){
   text("The sequence only works on unlocked doors.");
-  text("Sufficient space and unobstructed paths are required\nfor automatic waypoint placement.");
+  text("Sufficient space and unobstructed straight paths from the\ncurrent positions are required for automatic waypoint placement.");
  }
  for(size_t i=0;i<option_count;i++)if(options[i].section==page&&!is_default_slow_speed(&options[i].option))
   draw_option(&options[i].option);
