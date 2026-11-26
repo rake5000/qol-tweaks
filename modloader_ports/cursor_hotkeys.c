@@ -362,12 +362,12 @@ static void scan_grenade_buttons(void *node,unsigned depth,GrenadeChoice *best) 
 typedef struct {
     uintptr_t wheel,client,waypoint,human;
     uint32_t waypoint_id,human_id;
-} GrenadeContext;
+} ActionWheelContext;
 
-static bool grenade_context(GrenadeContext *context) {
+static bool read_action_wheel(ActionWheelContext *context) {
     uintptr_t gui=0,table=0,fn=0;
     uint32_t owner=0;
-    GrenadeContext c={0};
+    ActionWheelContext c={0};
     if(!read_at(image+0xfe71a8,&gui,8)||!gui||!read_at(gui+8,&c.wheel,8)||!c.wheel||
         !api->GuiIsShown((void*)c.wheel)||
         !read_at(c.wheel+856,&c.waypoint_id,4)||!c.waypoint_id||c.waypoint_id>100000||
@@ -381,7 +381,7 @@ static bool grenade_context(GrenadeContext *context) {
     return true;
 }
 
-static bool switch_grenade_wheel(uintptr_t wheel) {
+static bool switch_action_wheel(uintptr_t wheel) {
     static const char *const switches[]={"#switch_to_path_options","#switch_to_target_options"};
     for(unsigned i=0;i<sizeof(switches)/sizeof(switches[0]);++i) {
         void *button=api->GuiFind((void*)wheel,switches[i]);
@@ -392,21 +392,25 @@ static bool switch_grenade_wheel(uintptr_t wheel) {
     return false;
 }
 
+static bool refresh_action_wheel(ActionWheelContext *context) {
+    // Switching pages can rebuild the GUI tree. Keep the original order target.
+    ActionWheelContext next;
+    if(!read_action_wheel(&next)||next.client!=context->client||
+        next.waypoint_id!=context->waypoint_id||next.waypoint!=context->waypoint||
+        next.human!=context->human||next.human_id!=context->human_id)return false;
+    *context=next;
+    return true;
+}
+
 static void dispatch_grenade(unsigned binding) {
-    GrenadeContext context;
-    if(!grenade_context(&context)) {
+    ActionWheelContext context;
+    if(!read_action_wheel(&context)) {
         api->Log("Grenade hotkey: no valid friendly trooper context; no order placed.");return;
     }
     GrenadeChoice best={.human=context.human,.slot=27,.desired=binding==BIND_FRAG?2:1};
     scan_grenade_buttons((void*)context.wheel,0,&best);
-    if(!best.button&&switch_grenade_wheel(context.wheel)) {
-        // The native page event can rebuild the GUI tree. Read fresh items
-        // and require the request to still refer to the same waypoint and trooper.
-        GrenadeContext next;
-        if(!grenade_context(&next)||next.client!=context.client||
-            next.waypoint_id!=context.waypoint_id||next.waypoint!=context.waypoint||
-            next.human!=context.human||next.human_id!=context.human_id)return;
-        context=next;
+    if(!best.button&&switch_action_wheel(context.wheel)) {
+        if(!refresh_action_wheel(&context))return;
         best.visited=0;
         scan_grenade_buttons((void*)context.wheel,0,&best);
     }

@@ -17,16 +17,21 @@ static void *find_suppression_button(void *node,unsigned depth,unsigned *visited
  return NULL;
 }
 static void dispatch_suppression(void){
- uintptr_t gui=0,wheel=0,client=0,wp=0,human=0,table=0,type=0;uint32_t wp_id=0,owner_id=0,id=0;
- if(!read_at(image+0xfe71a8,&gui,8)||!read_at(gui+8,&wheel,8)||
-    !read_at(wheel+856,&wp_id,4)||!wp_id||wp_id>100000||
-    !read_at(image+0xff0ea8,&client,8)||!read_at(client+0x2e8+wp_id*8,&wp,8)||!wp||
-    !read_at(wp,&table,8)||!read_at(table+8,&type,8)||type!=actionwp_get_type||
-    !read_at(wp+0x220,&owner_id,4)||owner_id>100000||!read_at(client+0x2e8+owner_id*8,&human,8)||
-    !friendly_human(human,client,&id))return;
- unsigned visited=0;void *button=find_suppression_button((void*)wheel,0,&visited);
- if(!button){api->Log("Ctrl+S: suppressive fire unavailable; no order placed.");api->GuiShow((void*)wheel,0);return;}
+ ActionWheelContext context;
+ if(!read_action_wheel(&context))return;
+ unsigned visited=0;
+ void *button=find_suppression_button((void*)context.wheel,0,&visited);
+ if(!button&&switch_action_wheel(context.wheel)){
+  if(!refresh_action_wheel(&context))return;
+  visited=0;
+  button=find_suppression_button((void*)context.wheel,0,&visited);
+ }
+ if(!button){
+  api->Log("Ctrl+S: suppressive fire unavailable; no order placed.");
+  api->GuiShow((void*)context.wheel,0);
+  return;
+ }
  DK2ML_Status result=api->GuiClick(button);
- api->Log("Ctrl+S: native suppressive-fire click owner=%u waypoint=%u status=%d; native targeting retained.",id,wp_id,result);
+ api->Log("Ctrl+S: native suppressive-fire click owner=%u waypoint=%u status=%d; native targeting retained.",context.human_id,context.waypoint_id,result);
 }
 #endif

@@ -6,7 +6,7 @@ static unsigned char game[0xff0eb0],client[0x105820],gui[16];
 static unsigned char wheels[2][864],buttons[2][288],switches[2][152];
 static unsigned char waypoint[0x228],human[1200],vtable[16],actions[2][72],item[48];
 static void *action_lists[2][1];
-static int page,grenade_clicks,switch_clicks,hidden,wrong_waypoint;
+static int page,action_clicks,switch_clicks,hidden,wrong_waypoint;
 
 static void put_pointer(unsigned char *dst,size_t offset,const void *value) {
     memcpy(dst+offset,&value,sizeof value);
@@ -35,7 +35,7 @@ static DK2ML_Status mock_click(void *button) {
         return DK2ML_OK;
     }
     assert(button==buttons[page]);
-    ++grenade_clicks;
+    ++action_clicks;
     return DK2ML_OK;
 }
 static void mock_show(void *node,int show) {
@@ -44,7 +44,7 @@ static void mock_show(void *node,int show) {
 }
 static void mock_log(const char *format,...) {(void)format;}
 static void begin_case(int start,int first,int second,int stale) {
-    page=start;switch_clicks=0;grenade_clicks=0;hidden=0;wrong_waypoint=stale;
+    page=start;switch_clicks=0;action_clicks=0;hidden=0;wrong_waypoint=stale;
     buttons[0][144]=(unsigned char)first;buttons[1][144]=(unsigned char)second;
     put_pointer(gui,8,wheels[page]);
     put_number(wheels[0],856,1);put_number(wheels[1],856,1);
@@ -70,15 +70,26 @@ int main(void) {
         put_number(actions[i],64,23);put_number(actions[i],68,1);
     }
     begin_case(0,1,1,0);dispatch_grenade(BIND_FLASH);
-    assert(grenade_clicks==1&&switch_clicks==0&&!hidden);
+    assert(action_clicks==1&&switch_clicks==0&&!hidden);
     begin_case(0,0,1,0);dispatch_grenade(BIND_FLASH);
-    assert(grenade_clicks==1&&switch_clicks==1&&page==1&&!hidden);
+    assert(action_clicks==1&&switch_clicks==1&&page==1&&!hidden);
     begin_case(1,1,0,0);put_pointer(item,40,"FOG_Frag_1x");dispatch_grenade(BIND_FRAG);
-    assert(grenade_clicks==1&&switch_clicks==1&&page==0&&!hidden);
+    assert(action_clicks==1&&switch_clicks==1&&page==0&&!hidden);
     begin_case(0,0,0,0);dispatch_grenade(BIND_FRAG);
-    assert(!grenade_clicks&&switch_clicks==1&&hidden==1);
+    assert(!action_clicks&&switch_clicks==1&&hidden==1);
     begin_case(0,0,1,1);dispatch_grenade(BIND_FRAG);
-    assert(!grenade_clicks&&switch_clicks==1&&!hidden);
-    puts("PASS: native grenade wheel priority, disabled buttons, both switch directions, no-action and stale-waypoint cases.");
+    assert(!action_clicks&&switch_clicks==1&&!hidden);
+    for(int i=0;i<2;++i)put_number(actions[i],64,17);
+    begin_case(0,1,1,0);dispatch_suppression();
+    assert(action_clicks==1&&switch_clicks==0&&!hidden);
+    begin_case(0,0,1,0);dispatch_suppression();
+    assert(action_clicks==1&&switch_clicks==1&&page==1&&!hidden);
+    begin_case(1,1,0,0);dispatch_suppression();
+    assert(action_clicks==1&&switch_clicks==1&&page==0&&!hidden);
+    begin_case(0,0,0,0);dispatch_suppression();
+    assert(!action_clicks&&switch_clicks==1&&hidden==1);
+    begin_case(0,0,1,1);dispatch_suppression();
+    assert(!action_clicks&&switch_clicks==1&&!hidden);
+    puts("PASS: native grenade and suppressive-fire wheel priority, disabled buttons, both switch directions, no-action and stale-waypoint cases.");
     return 0;
 }
