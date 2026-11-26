@@ -193,8 +193,8 @@ static void draw_shared_menu(void) {
                 end_tab_bar();
             }
         }
-        if(get_provider("Rake5000.Settings.RTSCamera")&&menu_tab("RTS Camera")){
-            menu_heading("RTS Camera");
+        if(get_provider("Rake5000.Settings.RTSCamera")&&menu_tab("Tactical Orbit Camera")){
+            menu_heading("Tactical Orbit Camera");
             draw_provider("Rake5000.Settings.RTSCamera",&found);
         }
         end_tab_bar();
@@ -232,7 +232,7 @@ static void frame(const DK2ML_Event *event,void *user) {
 #else
     set_input_capture(imgui_wants_game_input());
 #endif
-    if(imgui_begin("Rake5000 Modules##shared_settings",&window_open,window_flags)) {
+    if(imgui_begin("Mod Settings##shared_settings",&window_open,window_flags)) {
 #ifdef R5K_QOL_UI
         draw_shared_menu();
 #else
@@ -337,7 +337,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
     button.structSize=sizeof button;
     button.icon="data/textures/gui/rake5000_modules_normal.dds";
     button.iconHover="data/textures/gui/rake5000_modules_hover.dds";
-    button.tooltip="Rake5000 Modules settings";
+    button.tooltip="Mod Settings";
     button.onClick=open_settings;
     if(api->AddMenuButton(&button)!=DK2ML_OK||
        api->Subscribe(DK2ML_EVENT_FRAME,frame,NULL)!=DK2ML_OK)return 4;
