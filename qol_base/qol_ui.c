@@ -20,7 +20,7 @@ static QolBinding bindings[]={
  B("Open & center-check",2,257,'O',0),B("Open door only",2,258,'O',QOL_SHIFT),
  B("Increase game speed",3,QOL_SPEED_UP,VK_ADD,0),B("Decrease game speed",3,QOL_SPEED_DOWN,VK_SUBTRACT,0),
  B("Toggle normal / custom speed",3,QOL_SPEED_TOGGLE,VK_MULTIPLY,0),
- B("Toggle autoexecution for all go-codes",1,QOL_AUTO_ALL,VK_OEM_2,0)
+ B("Toggle all auto-execute",1,QOL_AUTO_ALL,VK_OEM_2,0)
 };
 #undef B
 typedef struct {DK2ML_Option option;int section;union {bool boolean;int integer;float real;} defaults;} QolOption;
@@ -217,7 +217,11 @@ static void draw_binding(size_t i){
  if(align_text)align_text();
  text("%s",bindings[i].label);
  same_line(17.5f*em,-1);
- snprintf(label,sizeof label,"%s##qbind%u",capture==(int)i?"Press key...":key,(unsigned)i);
+ const char *caption=capture==(int)i?"Press key...":key;
+ const size_t length=strlen(caption);
+ // ImGui hides the text starting at ##, so separate a visible trailing #.
+ const char *separator=length&&caption[length-1]=='#'?" ":"";
+ snprintf(label,sizeof label,"%s%s##qbind%u",caption,separator,(unsigned)i);
  if(button(label,&key_size,0))capture=(int)i;
 }
 
