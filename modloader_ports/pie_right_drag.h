@@ -6,7 +6,6 @@ static bool (*pie_modifier_down)(int);
 static unsigned char pie_capture_mode __attribute__((used));
 static unsigned char pie_cycle_selected __attribute__((used));
 static uintptr_t pie_capture_vanilla __attribute__((used));
-static uintptr_t pie_capture_regular __attribute__((used));
 static uintptr_t pie_capture_change __attribute__((used));
 static uintptr_t pie_capture_look_update __attribute__((used));
 
@@ -16,22 +15,22 @@ __attribute__((naked)) static void pie_capture_bridge(void) {
     __asm__ volatile(
         "cmpb $0, pie_capture_mode(%rip)\n"
         "je 4f\n"
+        "movzbl pie_capture_mode(%rip), %edx\n"
+        "cmpl $5, %edx\n"
+        "je 2f\n"
         "testb %r10b, %r10b\n"
         "jnz 1f\n"
         "cmpb $0, pie_cycle_selected(%rip)\n"
         "jne 3f\n"
-        "cmpb $2, pie_capture_mode(%rip)\n"
-        "je 5f\n"
-        "jmp 2f\n"
+        "2: jmp *pie_capture_change(%rip)\n"
         "1: movb $1, pie_cycle_selected(%rip)\n"
         "jmp *pie_capture_vanilla(%rip)\n"
-        "2: movl $6, %edx\n"
-        "jmp *pie_capture_change(%rip)\n"
         "3: jmp *pie_capture_look_update(%rip)\n"
         "4: testb %al, %al\n"
-        "jnz 2b\n"
-        "jmp *pie_capture_vanilla(%rip)\n"
-        "5: jmp *pie_capture_regular(%rip)\n");
+        "jz 5f\n"
+        "movl $6, %edx\n"
+        "jmp 2b\n"
+        "5: jmp *pie_capture_vanilla(%rip)\n");
 }
 
 static void pie_input_message(UINT message) {
@@ -59,7 +58,8 @@ static void pie_initial_post(DK2ML_Regs *r,void *user) {
 static int pie_capture_pre(DK2ML_Regs *r,void *user) {
     (void)user;
     if(r->stack&&r->stack[0]==image+0x134cfc)
-        pie_capture_mode=pie_override_active()?(pie_modifier_down(3)?2:1):0;
+        // A held native strafe modifier wins over both the default and the cycle.
+        pie_capture_mode=pie_override_active()?(pie_modifier_down(4)?5:pie_modifier_down(3)?4:6):0;
     return DK2ML_CALL_ORIGINAL;
 }
 
@@ -93,7 +93,6 @@ static void pie_install_frame(const DK2ML_Event *event,void *user) {
         return;
     }
     pie_capture_vanilla=image+0x134d0a;
-    pie_capture_regular=image+0x134d9b;
     pie_capture_change=image+0x134da0;
     pie_capture_look_update=image+0x134db2;
     memcpy(site,jump,sizeof jump);
