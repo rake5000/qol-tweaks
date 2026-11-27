@@ -3,39 +3,57 @@
 
 static bool pie_right_drag=true,pie_patch_ready;
 static bool (*pie_modifier_down)(int);
-static unsigned char pie_capture_mode __attribute__((used));
-static unsigned char pie_cycle_selected __attribute__((used));
+static _Thread_local bool pie_drag_started;
+static _Thread_local unsigned pie_previous_modifiers;
+// The decision runs immediately after the capture pre-hook on the input thread.
+static unsigned char pie_capture_active __attribute__((used));
+static unsigned char pie_capture_request __attribute__((used));
+static unsigned char pie_capture_toggle __attribute__((used));
+static uintptr_t pie_just_down __attribute__((used));
 static uintptr_t pie_capture_vanilla __attribute__((used));
 static uintptr_t pie_capture_change __attribute__((used));
 static uintptr_t pie_capture_look_update __attribute__((used));
 
-// Left-click uses the native three-mode cycle. After that, keep the chosen
-// action for this drag while the original routine continues updating its aim.
-__attribute__((naked)) static void pie_capture_bridge(void) {
+__attribute__((naked,used)) static void pie_capture_bridge(void) {
     __asm__ volatile(
-        "cmpb $0, pie_capture_mode(%rip)\n"
+        "cmpb $0, pie_capture_active(%rip)\n"
         "je 4f\n"
-        "movzbl pie_capture_mode(%rip), %edx\n"
-        "cmpl $5, %edx\n"
+        "movzbl pie_capture_request(%rip), %edx\n"
+        "testl %edx, %edx\n"
+        "jz 3f\n"
+        "movb $0, pie_capture_request(%rip)\n"
+        "cmpb $0, pie_capture_toggle(%rip)\n"
         "je 2f\n"
-        "testb %r10b, %r10b\n"
-        "jnz 1f\n"
-        "cmpb $0, pie_cycle_selected(%rip)\n"
-        "jne 3f\n"
+        "cmpl %esi, %edx\n"
+        "jne 2f\n"
+        "movl $6, %edx\n"
         "2: jmp *pie_capture_change(%rip)\n"
-        "1: movb $1, pie_cycle_selected(%rip)\n"
-        "jmp *pie_capture_vanilla(%rip)\n"
-        "3: jmp *pie_capture_look_update(%rip)\n"
-        "4: testb %al, %al\n"
+        "3: testb %r10b, %r10b\n"
+        "jnz 5f\n"
+        "jmp *pie_capture_look_update(%rip)\n"
+        "4: movl $3, %ecx\n"
+        "call *pie_just_down(%rip)\n"
+        "testb %al, %al\n"
         "jz 5f\n"
         "movl $6, %edx\n"
         "jmp 2b\n"
         "5: jmp *pie_capture_vanilla(%rip)\n");
 }
 
+__attribute__((naked)) static void pie_native_strafe_bridge(void) {
+    __asm__ volatile(
+        "cmpb $0, pie_capture_active(%rip)\n"
+        "jne pie_capture_bridge\n"
+        "movl $5, %edx\n"
+        "jmp *pie_capture_change(%rip)\n");
+}
+
 static void pie_input_message(UINT message) {
     if(message==WM_RBUTTONDOWN||message==WM_RBUTTONDBLCLK||message==WM_RBUTTONUP||
-       message==WM_CANCELMODE||message==WM_KILLFOCUS)pie_cycle_selected=0;
+       message==WM_CANCELMODE||message==WM_KILLFOCUS){
+        pie_drag_started=false;
+        pie_capture_request=0;
+    }
 }
 
 static bool pie_override_active(void) {
@@ -56,10 +74,24 @@ static void pie_initial_post(DK2ML_Regs *r,void *user) {
 }
 
 static int pie_capture_pre(DK2ML_Regs *r,void *user) {
-    (void)user;
-    if(r->stack&&r->stack[0]==image+0x134cfc)
-        // A held native strafe modifier wins over both the default and the cycle.
-        pie_capture_mode=pie_override_active()?(pie_modifier_down(4)?5:pie_modifier_down(3)?4:6):0;
+    (void)r;(void)user;
+    pie_capture_active=pie_override_active();
+    if(!pie_capture_active){
+        pie_drag_started=false;
+        pie_capture_request=0;
+        return DK2ML_CALL_ORIGINAL;
+    }
+    const unsigned modifiers=(pie_modifier_down(3)?1u:0u)|(pie_modifier_down(4)?2u:0u);
+    const unsigned pressed=modifiers&~pie_previous_modifiers;
+    pie_previous_modifiers=modifiers;
+    if(!pie_drag_started){
+        pie_drag_started=true;
+        pie_capture_toggle=0;
+        pie_capture_request=(modifiers&2)?5:(modifiers&1)?4:6;
+    }else if(pressed){
+        pie_capture_toggle=1;
+        pie_capture_request=(pressed&2)?5:4;
+    }
     return DK2ML_CALL_ORIGINAL;
 }
 
@@ -68,10 +100,16 @@ static void pie_save(const DK2ML_Option *option,void *user) {
     if(settings_path[0])WritePrivateProfileStringW(L"Orders",L"PieOnRightDrag",pie_right_drag?L"1":L"0",settings_path);
 }
 
-static const unsigned char pie_capture_original[]={0x84,0xc0,0x74,0x0a,0xba,6,0,0,0,0xe9,0x96,0,0,0};
+// Two entries in Captured_RClickDrag select native strafe or test the pie
+// modifier. Both must reach the same mode decision when the option is on.
+static const unsigned char pie_capture_original[]={
+    0xba,5,0,0,0,0xe9,0xae,0,0,0,
+    0xb9,3,0,0,0,0xe8,0x74,0x14,0x0f,0,
+    0x84,0xc0,0x74,0x0a,0xba,6,0,0,0,0xe9,0x96,0,0,0
+};
 static bool pie_capture_matches(void) {
     unsigned char bytes[sizeof pie_capture_original];
-    return read_at(image+0x134cfc,bytes,sizeof bytes)&&!memcmp(bytes,pie_capture_original,sizeof bytes);
+    return read_at(image+0x134ce8,bytes,sizeof bytes)&&!memcmp(bytes,pie_capture_original,sizeof bytes);
 }
 
 static void pie_install_frame(const DK2ML_Event *event,void *user) {
@@ -83,10 +121,13 @@ static void pie_install_frame(const DK2ML_Event *event,void *user) {
         api->Log("Pie on right-drag unavailable: native drag decision changed.");
         return;
     }
-    unsigned char jump[sizeof pie_capture_original]={0xff,0x25,0,0,0,0};
-    void *bridge=(void*)pie_capture_bridge;
-    memcpy(jump+6,&bridge,sizeof bridge);
-    void *site=(void*)(image+0x134cfc);
+    unsigned char jump[sizeof pie_capture_original]={0xff,0x25,10,0,0,0};
+    const unsigned char normal_entry[]={0xff,0x25,8,0,0,0};
+    void *strafe=(void*)pie_native_strafe_bridge,*normal=(void*)pie_capture_bridge;
+    memcpy(jump+10,normal_entry,sizeof normal_entry);
+    memcpy(jump+16,&strafe,sizeof strafe);
+    memcpy(jump+24,&normal,sizeof normal);
+    void *site=(void*)(image+0x134ce8);
     DWORD previous,ignored;
     if(!VirtualProtect(site,sizeof jump,PAGE_EXECUTE_READWRITE,&previous)){
         api->Log("Pie on right-drag unavailable: cannot install drag decision.");
@@ -109,9 +150,11 @@ static bool configure_pie_right_drag(void) {
         return true;
     }
     pie_modifier_down=(void*)api->ResolveSymbol("InputMap::IsDown");
+    pie_just_down=(uintptr_t)api->ResolveSymbol("InputMap::JustDown");
     if((uintptr_t)pie_modifier_down!=image+0x226100||
+       pie_just_down!=image+0x226170||
        !hook_named("InputMap::IsDown",0x226100,pie_initial_pre,pie_initial_post)||
-       !hook_named("InputMap::JustDown",0x226170,pie_capture_pre,NULL)){
+       !hook_named("GameInput::Captured_RClickDrag",0x1349e0,pie_capture_pre,NULL)){
         api->Log("Pie on right-drag unavailable: could not hook the native modifiers.");
         return true;
     }
@@ -120,7 +163,7 @@ static bool configure_pie_right_drag(void) {
     option.structSize=sizeof option;
     option.type=DK2ML_OPTION_BOOL;
     option.label="Pie on right-drag by default";
-    option.tooltip="Right-drag draws a pie. Hold the game's pie modifier (Shift by default) for a regular look. Left-click during the drag cycles look modes.";
+    option.tooltip="Right-drag starts in pie mode. Press Shift for a regular look or Ctrl for strafe with default bindings. Press the same key again to return to pie. Left-click cycles look modes.";
     option.value=&pie_right_drag;
     option.onChange=pie_save;
     return api->AddOption(&option)==DK2ML_OK&&api->Subscribe(DK2ML_EVENT_FRAME,pie_install_frame,NULL)==DK2ML_OK;
