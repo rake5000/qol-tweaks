@@ -75,6 +75,6 @@ int main(void){
  reset_settings(0);
  assert(conflict_notice&&bindings[0].key=='K'&&bindings[18].key=='G');
  assert(DeleteFileW(binding_path));assert(RemoveDirectoryW(unique));
- puts("PASS: all 23 bindings, exact modifiers, cross-section conflict rejection, rebind persistence, capture/cancel/unbind, five groups and fixed reset defaults with callbacks after value restoration.");
+ puts("PASS: all 24 bindings, exact modifiers, cross-section conflict rejection, rebind persistence, capture/cancel/unbind, five groups and fixed reset defaults with callbacks after value restoration.");
  return 0;
 }

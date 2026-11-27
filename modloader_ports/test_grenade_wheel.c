@@ -90,6 +90,11 @@ int main(void) {
     assert(!action_clicks&&switch_clicks==1&&hidden==1);
     begin_case(0,0,1,1);dispatch_suppression();
     assert(!action_clicks&&switch_clicks==1&&!hidden);
-    puts("PASS: native grenade and suppressive-fire wheel priority, disabled buttons, both switch directions, no-action and stale-waypoint cases.");
+    for(unsigned flags=0;flags<=15;++flags){
+        const unsigned expected=flags==15?0:15;
+        assert((flags^autoexec_all_changes(flags))==expected);
+        assert(autoexec_all_changes(flags|0x80)==autoexec_all_changes(flags));
+    }
+    puts("PASS: native grenade and suppressive-fire wheel priority, disabled buttons, both switch directions, no-action and stale-waypoint cases; all 16 go-code autoexecution states.");
     return 0;
 }

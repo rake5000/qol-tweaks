@@ -19,7 +19,8 @@ static QolBinding bindings[]={
  B("Toggle autoexecution C",1,QOL_AUTO_A+2,'3',QOL_CTRL),B("Toggle autoexecution D",1,QOL_AUTO_A+3,'4',QOL_CTRL),
  B("Open & center-check",2,257,'O',0),B("Open door only",2,258,'O',QOL_SHIFT),
  B("Increase game speed",3,QOL_SPEED_UP,VK_ADD,0),B("Decrease game speed",3,QOL_SPEED_DOWN,VK_SUBTRACT,0),
- B("Toggle normal / custom speed",3,QOL_SPEED_TOGGLE,VK_MULTIPLY,0)
+ B("Toggle normal / custom speed",3,QOL_SPEED_TOGGLE,VK_MULTIPLY,0),
+ B("Toggle autoexecution for all go-codes",1,QOL_AUTO_ALL,VK_OEM_2,0)
 };
 #undef B
 typedef struct {DK2ML_Option option;int section;union {bool boolean;int integer;float real;} defaults;} QolOption;
@@ -132,11 +133,30 @@ static void reset_all(const DK2ML_Option *option,void *user){
 int qol_ui_prepare(const DK2ML_API *loader){
  api=loader;const wchar_t *dir=api->GetConfigDir();if(!dir||wcslen(dir)+17>=MAX_PATH)return 1;
  swprintf(binding_path,MAX_PATH,L"%lsbindings.ini",dir);
- // Validate the whole saved table before accepting it; reject conflicts as a unit.
+ QolBinding *all=&bindings[COUNT(bindings)-1];
+ SHORT hash_key=VkKeyScanW(L'#');
+ all->default_key=0;
+ all->default_mods=0;
+ if(hash_key!=-1&&((hash_key>>8)&~7)==0&&!reserved_key(hash_key&255)){
+  const int key=hash_key&255,mods=(hash_key>>8)&7;
+  bool taken=false;
+  for(size_t i=0;i<COUNT(bindings)-1;i++)
+   if(bindings[i].default_key==key&&bindings[i].default_mods==mods)taken=true;
+  if(!taken){all->default_key=key;all->default_mods=mods;}
+ }
+ // Validate the saved table. A newly introduced default must not replace a
+ // player's existing custom binding if they already use that combination.
+ bool all_saved=false;
  for(size_t i=0;i<COUNT(bindings);i++){
   wchar_t key[24];swprintf(key,24,L"Action%d",bindings[i].action);
-  int packed=GetPrivateProfileIntW(L"Bindings",key,bindings[i].default_key|(bindings[i].default_mods<<8),binding_path);
+  int packed=GetPrivateProfileIntW(L"Bindings",key,-1,binding_path);
+  if(&bindings[i]==all)all_saved=packed!=-1;
+  if(packed==-1)packed=bindings[i].default_key|(bindings[i].default_mods<<8);
   bindings[i].key=packed&255;bindings[i].mods=(packed>>8)&7;
+ }
+ if(!all_saved&&qol_conflicts(bindings,COUNT(bindings),COUNT(bindings)-1)){
+  all->key=0;
+  all->mods=0;
  }
  bool invalid=false;for(size_t i=0;i<COUNT(bindings);i++)if(qol_conflicts(bindings,COUNT(bindings),i)||reserved_key(bindings[i].key))invalid=true;
  for(size_t i=0;i<COUNT(bindings);i++){

@@ -1,6 +1,10 @@
 #ifndef R5K_AUTOEXEC_DEFAULTS_H
 #define R5K_AUTOEXEC_DEFAULTS_H
 #include <stdbool.h>
+static inline unsigned autoexec_all_changes(unsigned flags){
+    const unsigned all=15u;
+    return (flags&all)==all?all:all&~flags;
+}
 typedef struct { bool initialized; unsigned manual; } AutoexecDefaults;
 static inline void defaults_reset(AutoexecDefaults *s){s->initialized=false;s->manual=0;}
 static inline void defaults_manual(AutoexecDefaults *s,unsigned code){if(code>=1&&code<=4)s->manual|=1u<<(code-1);}

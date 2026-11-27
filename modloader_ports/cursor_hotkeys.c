@@ -26,6 +26,7 @@ DK2ML_PLUGIN_MANIFEST(3, "Cursor Hotkeys", "1.4.6", "Rake5000", "", 112);
 
 static bool checked, compatible;
 static unsigned autoexec_requests;
+enum { AUTOEXEC_ALL_REQUEST=16u };
 static uintptr_t defaults_client, defaults_map;
 static uint32_t defaults_last_time;
 static AutoexecDefaults auto_defaults;
@@ -574,6 +575,13 @@ static void input_post(DK2ML_Regs *regs, void *user) {
     else if(clear_id){if(door_request.owner==clear_id)door_request.pending=false;if(clear_hovered_plan(clear_id,client)&&play_gui_click)play_gui_click();}
 
     if(atomic_exchange(&autoexecute_reapply,false))defaults_reset(&auto_defaults);
+    if(requests&AUTOEXEC_ALL_REQUEST){
+        uint32_t flags=0;
+        if(!read_at(client+0xfe2a4,&flags,sizeof(flags)))return;
+        requests=autoexec_all_changes(flags);
+        // Keep the mission preset from overwriting this explicit choice.
+        for(unsigned code=1;code<=4;++code)defaults_manual(&auto_defaults,code);
+    }
     for(unsigned code=1;code<=4;++code)
         if(requests&(1u<<(code-1)))defaults_manual(&auto_defaults,code);
     if (!auto_defaults.initialized) {
@@ -602,7 +610,10 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
         state s = {0};
         if (game_foreground(&active) && active == window &&
             get_state(&s) && s.playing && !s.wheel_open && !s.other_panel)
+        {
             if (wp >= 1 && wp <= 4) autoexec_requests ^= 1u << (wp - 1);
+            else if(wp==5)autoexec_requests^=AUTOEXEC_ALL_REQUEST;
+        }
         return 0;
     }
     if (message == dispatch_message) {
@@ -640,7 +651,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
             }
         }
 #ifdef R5K_QOL_UI
-        if(action>=QOL_AUTO_A&&action<QOL_AUTO_A+4) {
+        if((action>=QOL_AUTO_A&&action<QOL_AUTO_A+4)||action==QOL_AUTO_ALL) {
 #else
         if (wp >= '1' && wp <= '4' &&
             (GetKeyState(VK_CONTROL) & 0x8000) &&
@@ -653,7 +664,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
                 if (!(lp & ((LPARAM)1 << 30)) &&
                     PostMessageW(window, autoexec_message,
 #ifdef R5K_QOL_UI
-                        action-QOL_AUTO_A+1,
+                        action==QOL_AUTO_ALL?5:action-QOL_AUTO_A+1,
 #else
                         wp-'1'+1,
 #endif
@@ -846,6 +857,10 @@ static bool install_window_bridge(void) {
         api->EnableHook((void *)native_window_proc) == DK2ML_OK;
 }
 
+#ifdef R5K_QOL_UI
+#include "pie_right_drag.h"
+#endif
+
 static void frame(const DK2ML_Event *event, void *user) {
     (void)event; (void)user;
     if (enabled) on_present(NULL);
@@ -868,6 +883,9 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
         !hook_named("GameInput::CheckKeyboardEvents", 0x12e2f0, NULL, input_post) ||
         !hook_named("GameInput::Update",0x131360,NULL,button_input_post) ||
         api->Subscribe(DK2ML_EVENT_FRAME, frame, NULL) != DK2ML_OK) return 1;
+#ifdef R5K_QOL_UI
+    if(!configure_pie_right_drag())return 1;
+#endif
     api->Log("Ready: Shift+1-4 assignment, Ctrl+1-4 autoexecution, C clear path, Shift+C delete waypoint.");
     return 0;
 }
