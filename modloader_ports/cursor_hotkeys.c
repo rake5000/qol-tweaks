@@ -833,6 +833,10 @@ static void on_present(void *runtime) {
 }
 
 
+#ifdef R5K_QOL_UI
+#include "pie_right_drag.h"
+#endif
+
 static int window_pre(DK2ML_Regs *regs, void *user) {
     (void)user;
 #ifdef R5K_QOL_UI
@@ -841,6 +845,9 @@ static int window_pre(DK2ML_Regs *regs, void *user) {
     if (!enabled || forwarding_window ||
         (HWND)(uintptr_t)DK2ML_Arg(regs, 0) != hooked_window) return DK2ML_CALL_ORIGINAL;
     current_message = (UINT)DK2ML_Arg(regs, 1);
+#ifdef R5K_QOL_UI
+    pie_input_message(current_message);
+#endif
     current_wp = (WPARAM)DK2ML_Arg(regs, 2);
     current_lp = (LPARAM)DK2ML_Arg(regs, 3);
     window_forwarded = false;
@@ -856,10 +863,6 @@ static bool install_window_bridge(void) {
     return api->CreateSafeHook((void *)native_window_proc, window_pre, NULL, NULL) == DK2ML_OK &&
         api->EnableHook((void *)native_window_proc) == DK2ML_OK;
 }
-
-#ifdef R5K_QOL_UI
-#include "pie_right_drag.h"
-#endif
 
 static void frame(const DK2ML_Event *event, void *user) {
     (void)event; (void)user;

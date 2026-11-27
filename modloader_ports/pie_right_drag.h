@@ -4,25 +4,39 @@
 static bool pie_right_drag=true,pie_patch_ready;
 static bool (*pie_modifier_down)(int);
 static unsigned char pie_capture_mode __attribute__((used));
+static unsigned char pie_cycle_selected __attribute__((used));
 static uintptr_t pie_capture_vanilla __attribute__((used));
 static uintptr_t pie_capture_regular __attribute__((used));
 static uintptr_t pie_capture_change __attribute__((used));
+static uintptr_t pie_capture_look_update __attribute__((used));
 
-// The captured drag normally consumes InputMap::JustDown(3) here.
-// Keep its original branches when disabled. In RMB mode explicitly select
-// point look (6) or direction look (4), bypassing the vanilla distance heuristic.
+// Left-click uses the native three-mode cycle. After that, keep the chosen
+// action for this drag while the original routine continues updating its aim.
 __attribute__((naked)) static void pie_capture_bridge(void) {
     __asm__ volatile(
-        "cmpb $1, pie_capture_mode(%rip)\n"
-        "je 2f\n"
+        "cmpb $0, pie_capture_mode(%rip)\n"
+        "je 4f\n"
+        "testb %r10b, %r10b\n"
+        "jnz 1f\n"
+        "cmpb $0, pie_cycle_selected(%rip)\n"
+        "jne 3f\n"
         "cmpb $2, pie_capture_mode(%rip)\n"
-        "je 3f\n"
-        "testb %al, %al\n"
-        "jz 1f\n"
+        "je 5f\n"
+        "jmp 2f\n"
+        "1: movb $1, pie_cycle_selected(%rip)\n"
+        "jmp *pie_capture_vanilla(%rip)\n"
         "2: movl $6, %edx\n"
         "jmp *pie_capture_change(%rip)\n"
-        "1: jmp *pie_capture_vanilla(%rip)\n"
-        "3: jmp *pie_capture_regular(%rip)\n");
+        "3: jmp *pie_capture_look_update(%rip)\n"
+        "4: testb %al, %al\n"
+        "jnz 2b\n"
+        "jmp *pie_capture_vanilla(%rip)\n"
+        "5: jmp *pie_capture_regular(%rip)\n");
+}
+
+static void pie_input_message(UINT message) {
+    if(message==WM_RBUTTONDOWN||message==WM_RBUTTONDBLCLK||message==WM_RBUTTONUP||
+       message==WM_CANCELMODE||message==WM_KILLFOCUS)pie_cycle_selected=0;
 }
 
 static bool pie_override_active(void) {
@@ -81,6 +95,7 @@ static void pie_install_frame(const DK2ML_Event *event,void *user) {
     pie_capture_vanilla=image+0x134d0a;
     pie_capture_regular=image+0x134d9b;
     pie_capture_change=image+0x134da0;
+    pie_capture_look_update=image+0x134db2;
     memcpy(site,jump,sizeof jump);
     VirtualProtect(site,sizeof jump,previous,&ignored);
     FlushInstructionCache(GetCurrentProcess(),site,sizeof jump);
@@ -106,7 +121,7 @@ static bool configure_pie_right_drag(void) {
     option.structSize=sizeof option;
     option.type=DK2ML_OPTION_BOOL;
     option.label="Pie on right-drag by default";
-    option.tooltip="Right-drag draws a pie. Hold the game's pie modifier (Shift by default) for a regular look.";
+    option.tooltip="Right-drag draws a pie. Hold the game's pie modifier (Shift by default) for a regular look. Left-click during the drag cycles look modes.";
     option.value=&pie_right_drag;
     option.onChange=pie_save;
     return api->AddOption(&option)==DK2ML_OK&&api->Subscribe(DK2ML_EVENT_FRAME,pie_install_frame,NULL)==DK2ML_OK;
