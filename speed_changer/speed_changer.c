@@ -31,7 +31,9 @@ extern void speed_step_stub(void);
 uintptr_t speed_replay_slot, speed_resume;
 float speed_selected_factor = 1.0f;
 const float speed_slow_factor = 0.3f;
+#ifndef R5K_QOL_UI
 static HMODULE self;
+#endif
 #ifndef R5K_QOL_NATIVE
 static unregister_fn unregister_addon;
 static event_fn unregister_event;
@@ -54,7 +56,27 @@ __declspec(dllexport) void R5K_SetDefaultSlowSpeed(int value){
     if(value>=10&&value<=90)atomic_store(&requested_default_percent,value);
 }
 static bool held[3];
+#ifdef R5K_QOL_UI
+static ULONGLONG speed_changed_at;
+static bool speed_was_changed;
+// A negative value highlights a recent change. Zero hides the indicator.
+static _Atomic int speed_hud_value;
+
+int qol_speed_hud_value(void){
+    return atomic_load(&speed_hud_value);
+}
+
+static void update_speed_hud(HWND owner, bool active){
+    (void)owner;
+    ULONGLONG age=GetTickCount64()-speed_changed_at;
+    int value=slowmo_override?30:percent;
+    if(!active||(!slowmo_override&&percent==100&&(!speed_was_changed||age>=2000)))value=0;
+    if(speed_was_changed&&age<700)value=-value;
+    atomic_store(&speed_hud_value,value);
+}
+#else
 #include "speed_hud.h"
+#endif
 
 
 // Exactly one eight-byte multiplication instruction; both simulation and
@@ -160,7 +182,7 @@ static void on_present(void *runtime) {
             held[i]=(GetAsyncKeyState((int[]){VK_ADD,VK_SUBTRACT,VK_MULTIPLY}[i])&0x8000)!=0;
 #endif
         }
-        if(speed_hud)ShowWindow(speed_hud,SW_HIDE);
+        update_speed_hud(NULL,false);
         return;
     }
 #endif
@@ -295,8 +317,10 @@ int qol_speed_init(const DK2ML_API *loader,const DK2ML_PluginInfo *info){
     swprintf(native_config,MAX_PATH,L"%lssettings.ini",directory);
     native_enabled=GetPrivateProfileIntW(L"Speed",L"Enabled",1,native_config)!=0;
     speed_feature_enabled=native_enabled?1:0;
+#ifndef R5K_QOL_UI
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
         (LPCWSTR)(uintptr_t)&qol_speed_init,&self);
+#endif
     DK2ML_Option option={0};option.structSize=sizeof option;option.type=DK2ML_OPTION_BOOL;
     option.label="Enable Speed Changer";option.value=&native_enabled;option.onChange=native_speed_changed;
     if(loader->AddOption(&option)!=DK2ML_OK)return 1;
@@ -313,7 +337,10 @@ int qol_speed_init(const DK2ML_API *loader,const DK2ML_PluginInfo *info){
 BOOL WINAPI DllMain(HINSTANCE instance,DWORD reason,LPVOID reserved){
     (void)instance;
     if(reason==DLL_PROCESS_DETACH&&!reserved){
-        speed_feature_enabled=0;destroy_speed_hud();
+        speed_feature_enabled=0;
+#ifndef R5K_QOL_UI
+        destroy_speed_hud();
+#endif
         InterlockedExchange(&speed_update_armed,0);
         if(installed){DWORD old,ignored;if(VirtualProtect(target,sizeof expected,PAGE_EXECUTE_READWRITE,&old)){
             memcpy(target,expected,sizeof expected);VirtualProtect(target,sizeof expected,old,&ignored);

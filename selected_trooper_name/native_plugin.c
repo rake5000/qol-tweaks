@@ -92,10 +92,53 @@ static void after_status(DK2ML_Regs*r,void*u){
     memcpy(label->name,name,(size_t)length);label->name[length]=0;
     label->screen[0]=x;label->screen[1]=y;
 }
+#ifdef R5K_QOL_UI
+extern int qol_speed_hud_value(void);
+
+static void draw_speed_indicator(uintptr_t renderer, void *font, int value){
+    char label[8];
+    int length=snprintf(label,sizeof(label),"%d%%",value<0?-value:value);
+    if(length<=0||length>=(int)sizeof(label))return;
+    FontVertex vertices[8*4];
+    uint16_t indices[8*6];
+    int count=build_letters(label,length,font,vertices,indices,0);
+    if(count<=0||count>length)return;
+
+    float left=vertices[0].p[0],bottom=vertices[0].p[1];
+    for(int i=1;i<count*4;i++){
+        left=fminf(left,vertices[i].p[0]);
+        bottom=fminf(bottom,vertices[i].p[1]);
+    }
+    const float *camera=(const float*)(renderer+0x4f8);
+    float height=fabsf(camera[0xa4/4]-camera[0xa0/4]);
+    float font_height=(float)*(int*)((uintptr_t)font+0x30);
+    if(!isfinite(height)||height<=0||font_height<=0)return;
+
+    // Start just beyond the right edge of the bottom-centred mission clock.
+    float scale=height*(16.0f/1440.0f)/font_height;
+    float model[16]={0};
+    model[0]=model[5]=scale;model[10]=model[15]=1;
+    model[3]=(camera[0x98/4]+camera[0x9c/4])*0.5f+height*(130.0f/1440.0f)-left*scale;
+    model[7]=fminf(camera[0xa0/4],camera[0xa4/4])+height*(44.0f/1440.0f)-bottom*scale;
+    print_text(model,(void*)(renderer+0x5a8),(void*)(renderer+0x528),font,
+        value<0?0xff8fdbff:0xffdbe5e7,label);
+}
+#endif
+
 static int draw_label(DK2ML_Regs*r,void*u){
-    (void)u;unsigned count_labels=capture_count;capture_count=0;if(!count_labels||!enabled||api->IsGameMenuOpen())return 0;
+    (void)u;
+    unsigned count_labels=enabled?capture_count:0;
+    capture_count=0;
+    int speed_indicator=0;
+#ifdef R5K_QOL_UI
+    speed_indicator=qol_speed_hud_value();
+#endif
+    if((!count_labels&&!speed_indicator)||api->IsGameMenuOpen())return 0;
     uintptr_t renderer=DK2ML_Arg(r,0);if(!renderer||!*(bool*)(renderer+0x13))return 0;
     void*font=get_font();if(!font)return 0;
+#ifdef R5K_QOL_UI
+    if(speed_indicator)draw_speed_indicator(renderer,font,speed_indicator);
+#endif
     for(unsigned label_index=0;label_index<count_labels;++label_index){
     const char*captured_name=captures[label_index].name;const float*captured_screen=captures[label_index].screen;
     FontVertex vertices[52*4];uint16_t indices[52*6];
