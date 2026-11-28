@@ -28,8 +28,13 @@ static QolOption options[32];static size_t option_count;
 static const DK2ML_API *api;static wchar_t binding_path[MAX_PATH];
 static int capture=-1;static bool conflict_notice;
 static int scalar_float,scalar_int;
+static bool center_check_unavailable;
 typedef struct {float x,y;} Vec2;
 static bool (*button)(const char*,const Vec2*,int);
+static bool (*public_button)(const char*,const Vec2*);
+static bool draw_button(const char *label,const Vec2 *size){
+ return public_button?public_button(label,size):button(label,size,0);
+}
 static bool (*checkbox)(const char*,bool*);
 static bool (*slider)(const char*,int,void*,const void*,const void*,const char*,int);
 static void (*text)(const char*,...);static void (*same_line)(float,float);
@@ -131,6 +136,7 @@ static void reset_all(const DK2ML_Option *option,void *user){
  (void)option;(void)user;reset_settings(-1);
 }
 int qol_ui_prepare(const DK2ML_API *loader){
+ center_check_unavailable=loader->GetGameVersion&&loader->GetGameVersion()==113;
  api=loader;const wchar_t *dir=api->GetConfigDir();if(!dir||wcslen(dir)+17>=MAX_PATH)return 1;
  swprintf(binding_path,MAX_PATH,L"%lsbindings.ini",dir);
  QolBinding *all=&bindings[COUNT(bindings)-1];
@@ -165,12 +171,13 @@ int qol_ui_prepare(const DK2ML_API *loader){
  }
  if(invalid)api->Log("QOL: invalid saved binding table; using defaults without overwriting the file.");
  button=(void*)api->ResolveSymbol("ImGui::ButtonEx");checkbox=(void*)api->ResolveSymbol("ImGui::Checkbox");
+ public_button=button?NULL:(void*)api->ResolveSymbol("ImGui::Button");
  slider=(void*)api->ResolveSymbol("ImGui::SliderScalar");text=(void*)api->ResolveSymbol("ImGui::Text");same_line=(void*)api->ResolveSymbol("ImGui::SameLine");
  align_text=(void*)api->ResolveSymbol("ImGui::AlignTextToFramePadding");
  text_line_height=(void*)api->ResolveSymbol("ImGui::GetTextLineHeight");
  int64_t t=0;if(api->GetEnumValue("ImGuiDataType_","ImGuiDataType_Float",&t)!=DK2ML_OK)return 1;scalar_float=(int)t;
  if(api->GetEnumValue("ImGuiDataType_","ImGuiDataType_S32",&t)!=DK2ML_OK)return 1;scalar_int=(int)t;
- return !(button&&checkbox&&slider&&text&&same_line);
+ return !((button||public_button)&&checkbox&&slider&&text&&same_line);
 }
 static bool is_default_slow_speed(const DK2ML_Option *option){
  return strcmp(option->label,"Default slow-motion speed")==0;
@@ -185,7 +192,8 @@ int qol_ui_register(void){
    if(is_default_slow_speed(&o))continue;
    if(api->AddOption(&o)!=DK2ML_OK)return 1;
   }
-  for(size_t i=0;i<COUNT(bindings);i++)if(bindings[i].section==group){
+  for(size_t i=0;i<COUNT(bindings);i++)if(bindings[i].section==group&&
+      !(center_check_unavailable&&bindings[i].action==257)){
    DK2ML_Option o={0};o.structSize=sizeof o;o.type=DK2ML_OPTION_KEY;o.label=bindings[i].label;
    o.value=&bindings[i].key;o.onChange=binding_changed;o.user=(void*)(uintptr_t)i;
    o.tooltip="Click to change the keyboard key; Backspace/Delete unbinds. Choose modifiers in the next row. Duplicate QOL combinations are refused.";
@@ -210,6 +218,7 @@ static void key_label(const QolBinding *b,char *label,size_t size){
  snprintf(label,size,"%s%s%s%s",(b->mods&QOL_CTRL)?"Ctrl+":"",(b->mods&QOL_ALT)?"Alt+":"",(b->mods&QOL_SHIFT)?"Shift+":"",key);
 }
 static void draw_binding(size_t i){
+ if(center_check_unavailable&&bindings[i].action==257)return;
  float em=text_line_height ? text_line_height() : 18.0f;
  const Vec2 key_size={17.0f*em,0};
  char key[100],label[160];
@@ -222,7 +231,7 @@ static void draw_binding(size_t i){
  // ImGui hides the text starting at ##, so separate a visible trailing #.
  const char *separator=length&&caption[length-1]=='#'?" ":"";
  snprintf(label,sizeof label,"%s%s##qbind%u",caption,separator,(unsigned)i);
- if(button(label,&key_size,0))capture=(int)i;
+ if(draw_button(label,&key_size))capture=(int)i;
 }
 
 static void draw_option(DK2ML_Option *o){
@@ -239,6 +248,7 @@ void qol_draw_settings(int page,void (*heading)(const char *)){
  if(page<0||page>=(int)COUNT(sections))return;
  if(page!=0)heading(sections[page]);
  if(page==2){
+  if(center_check_unavailable)text("Open & Center-Check is unavailable on this game build.");
   text("The sequence only works on unlocked doors.");
   text("Sufficient space and unobstructed straight paths from the\ncurrent positions are required for automatic waypoint placement.");
  }
@@ -261,5 +271,5 @@ void qol_draw_settings(int page,void (*heading)(const char *)){
 }
 void qol_draw_reset(int page){
  const Vec2 automatic={0,0};
- if(button("Reset this tab",&automatic,0))reset_settings(page);
+ if(draw_button("Reset this tab",&automatic))reset_settings(page);
 }

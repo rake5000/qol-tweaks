@@ -269,8 +269,8 @@ static bool init_position_only(void) {
  position_resize_fn=(uintptr_t)api->ResolveSymbol("Waypoints::Resize");
  position_bounds_fn=(uintptr_t)api->ResolveSymbol("Path::UpdateWaypointsBounds");
  position_coarse_reserve_fn=(uintptr_t)api->ResolveSymbol("List<Vector2>::Reserve");
- return position_query_fn==image+(current?0x9f650:0xa0bb0)&&position_resize_fn==image+(current?0x271680:0x2627a0)&&
-  position_bounds_fn==image+(current?0x19c910:0x19b760)&&position_coarse_reserve_fn==image+(current?0x280e0:0x25a10)&&
+ return position_query_fn==image+(current?0x9f650:0xa0bb0)&&position_resize_fn==image+(current?0x2827d0:0x2627a0)&&
+  position_bounds_fn==image+(current?0x1a6ee0:0x19b760)&&position_coarse_reserve_fn==image+(current?0x25390:0x25a10)&&
   install_door_completion_sync();
 }
 #endif

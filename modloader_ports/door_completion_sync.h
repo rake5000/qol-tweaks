@@ -67,7 +67,7 @@ static bool install_door_completion_sync(void) {
 #ifdef R5K_QOL_UI
  if(basic_113)return api->GetFieldOffset("Human_Server","m_actionWaypoints")==0x1528&&
   api->GetFieldOffset("ActionWP_Server","m_action")==0x13c&&
-  hook_named("Human_Server::TryToSyncAfterWaypoint",0x2bc350,door_sync_pre,door_sync_post);
+  hook_named("Human_Server::TryToSyncAfterWaypoint",0x2d3f30,door_sync_pre,door_sync_post);
 #endif
  return hook_named("Human_Server::TryToSyncAfterWaypoint",0x2ad6e0,door_sync_pre,door_sync_post);
 }

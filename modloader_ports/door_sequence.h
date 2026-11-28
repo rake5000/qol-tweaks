@@ -385,10 +385,10 @@ static bool init_door_sequence(void) {
 #ifdef R5K_QOL_UI
  current=basic_113;
 #endif
- door_client_slot=image+(current?0x1038c40:0xff0ea8);
- door_gui_slot=image+(current?0x100ce18:0xfe71a8);
- door_input_slot=image+(current?0x100e6e0:0xfe8a68);
- door_potential_slot=image+(current?0x100bf38:0xfe6f38);
+ door_client_slot=image+(current?0x105d3f0:0xff0ea8);
+ door_gui_slot=image+(current?0x10315c8:0xfe71a8);
+ door_input_slot=image+(current?0x1032e90:0xfe8a68);
+ door_potential_slot=image+(current?0x10306e8:0xfe6f38);
  door_entity_limit=current?12000:100001;
  door_selected_fn=(uintptr_t)api->ResolveSymbol("GameInput::GetSelectedHuman");
  door_potential_fn=(uintptr_t)api->ResolveSymbol("GameInput::UpdatePotentialActionWaypoint");
@@ -398,10 +398,10 @@ static bool init_door_sequence(void) {
  path_add_fn=(uintptr_t)api->ResolveSymbol("Path::AddToPath");
  path_end_fn=(uintptr_t)api->ResolveSymbol("Path::AddToPath_End");
  path_notify_fn=(uintptr_t)api->ResolveSymbol("Human_Client::NotifyServerOfPathModification");
- return door_selected_fn==image+(current?0x135dc0:0x137090)&&door_potential_fn==image+(current?0x1302b0:0x131d40)&&
- door_open_wheel_fn==image+(current?0xfdaf0:0xfd3f0)&&door_gocode_fn==image+(current?0x9ba00:0x9c9d0)&&
- (current?door_type_fn==image+0xa3000:door_type_fn!=0)&&path_add_fn==image+(current?0x199f70:0x198fa0)&&
- path_end_fn==image+(current?0x199730:0x198800)&&path_notify_fn==image+(current?0xb7920:0xb9a50)&&
+ return door_selected_fn==image+(current?0x13e170:0x137090)&&door_potential_fn==image+(current?0x138260:0x131d40)&&
+ door_open_wheel_fn==image+(current?0x10a210:0xfd3f0)&&door_gocode_fn==image+(current?0x987e0:0x9c9d0)&&
+ (current?door_type_fn==image+0xa0e30:door_type_fn!=0)&&path_add_fn==image+(current?0x1a41d0:0x198fa0)&&
+ path_end_fn==image+(current?0x1a38d0:0x198800)&&path_notify_fn==image+(current?0xb8f60:0xb9a50)&&
  api->GetTypeSize("Path")==184&&api->GetTypeSize("sActionWP")==84&&api->GetTypeSize("Waypoints::sPointParams")==12;
 }
 #endif

@@ -30,6 +30,9 @@ typedef void (*unregister_fn)(HMODULE);
 typedef void (*event_fn)(uint32_t, void *);
 typedef void (*log_fn)(HMODULE, int, const char *);
 extern void speed_step_stub(void);
+#ifdef R5K_QOL_UI
+extern void speed_step_stub_113(void);
+#endif
 uintptr_t speed_replay_slot, speed_resume;
 float speed_selected_factor = 1.0f;
 const float speed_slow_factor = 0.3f;
@@ -84,8 +87,9 @@ static void update_speed_hud(HWND owner, bool active){
 // Exactly one eight-byte multiplication instruction; both simulation and
 // physics consume the converted result immediately following this site.
 static const unsigned char expected_112[8] = {0xf3,0x0f,0x59,0x83,0x10,0xe2,0x07,0x00};
-static const unsigned char expected_113[8] = {0xf3,0x0f,0x59,0x87,0x10,0xe2,0x07,0x00};
+static const unsigned char expected_113[] = {0x0f,0x28,0xc1,0xf3,0x0f,0x59,0xc7};
 static const unsigned char *original_instruction=expected_112;
+static size_t original_length=sizeof expected_112;
 
 static void log_text(int level, const char *message) {
 #ifdef R5K_QOL_NATIVE
@@ -142,17 +146,22 @@ static bool install(void) {
         !read_at(image + dos.e_lfanew, &nt, sizeof(nt)) ||
         nt.Signature != IMAGE_NT_SIGNATURE ||
         nt.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 ||
-        nt.FileHeader.TimeDateStamp != (current?0x6b0a766b:0x68cb9cfb) ||
-        nt.OptionalHeader.SizeOfImage != (current?0x14a4000:0x1476000)) return false;
-    target = (unsigned char *)(image + (current?0x2d2d36:0x2c3059));
+        nt.FileHeader.TimeDateStamp != (current?1795897808u:0x68cb9cfbu) ||
+        nt.OptionalHeader.SizeOfImage != (current?21782528u:0x1476000u)) return false;
+    target = (unsigned char *)(image + (current?0x2ebf07:0x2c3059));
     original_instruction=current?expected_113:expected_112;
-    if (!read_at((uintptr_t)target, bytes, sizeof(bytes)) ||
-        memcmp(bytes, original_instruction, sizeof(bytes))) return false;
+    original_length=current?sizeof expected_113:sizeof expected_112;
+    if (!read_at((uintptr_t)target, bytes, original_length) ||
+        memcmp(bytes, original_instruction, original_length)) return false;
     trampoline = allocate_near((uintptr_t)target);
     if (!trampoline) return false;
     speed_replay_slot = current?0:image + 0x137cdb8;
-    speed_resume = (uintptr_t)(target + sizeof(bytes));
-    jump_to(trampoline, (const void *)&speed_step_stub);
+    speed_resume = (uintptr_t)(target + original_length);
+    const void *stub=(const void *)&speed_step_stub;
+#ifdef R5K_QOL_UI
+    if(current)stub=(const void *)&speed_step_stub_113;
+#endif
+    jump_to(trampoline, stub);
     DWORD old, ignored;
     if (!VirtualProtect(trampoline, 64, PAGE_EXECUTE_READ, &old)) goto fail;
     FlushInstructionCache(GetCurrentProcess(), trampoline, 64);
@@ -161,10 +170,10 @@ static bool install(void) {
     if (distance < INT32_MIN || distance > INT32_MAX) goto fail;
     int32_t relative = (int32_t)distance;
     memcpy(patch + 1, &relative, 4);
-    if (!VirtualProtect(target, sizeof(patch), PAGE_EXECUTE_READWRITE, &old)) goto fail;
-    memcpy(target, patch, sizeof(patch));
-    VirtualProtect(target, sizeof(patch), old, &ignored);
-    FlushInstructionCache(GetCurrentProcess(), target, sizeof(patch));
+    if (!VirtualProtect(target, original_length, PAGE_EXECUTE_READWRITE, &old)) goto fail;
+    memcpy(target, patch, original_length);
+    VirtualProtect(target, original_length, old, &ignored);
+    FlushInstructionCache(GetCurrentProcess(), target, original_length);
     installed = true;
     return true;
 fail:
@@ -221,7 +230,7 @@ static void on_present(void *runtime) {
 #ifdef R5K_QOL_NATIVE
     if(speed_113)active=pid==GetCurrentProcessId()&&!is_replay()&&
         native_api->GetGameState()==speed_running_state&&!native_api->IsGameMenuOpen()&&
-        read_at(image+0x1038c40,&client,sizeof client)&&client;
+        read_at(image+0x105d3f0,&client,sizeof client)&&client;
     else
 #endif
     active = pid == GetCurrentProcessId() && !is_replay() &&
@@ -334,10 +343,9 @@ int qol_speed_init(const DK2ML_API *loader,const DK2ML_PluginInfo *info){
     if((version!=112&&!speed_113)||GetModuleHandleW(L"DK2SpeedChanger.addon64"))return 1;
     void *symbol=loader->ResolveSymbol("GameClient::UpdateCamera");
     if(!symbol)return 1;
-    image=(uintptr_t)symbol-(speed_113?0x187c20:0x187f70);
+    image=(uintptr_t)symbol-(speed_113?0x1920e0:0x187f70);
     if(speed_113&&(!loader->IsReplaying||!loader->IsGameMenuOpen||!loader->GetGameState||
-        (uintptr_t)loader->ResolveSymbol("GameServer::Update")!=image+0x2d2a80||
-        (uintptr_t)loader->ResolveSymbol("g_pGameClient")!=image+0x1038c40||
+        (uintptr_t)loader->ResolveSymbol("g_pGameClient")!=image+0x105d3f0||
         loader->GetEnumValue("GameClient::eCGameState","CGAMESTATE_RUNNING",&speed_running_state)!=DK2ML_OK))return 1;
     const wchar_t *directory=loader->GetConfigDir();
     if(!directory||wcslen(directory)+13>=MAX_PATH)return 1;
@@ -351,9 +359,9 @@ int qol_speed_init(const DK2ML_API *loader,const DK2ML_PluginInfo *info){
     DK2ML_Option option={0};option.structSize=sizeof option;option.type=DK2ML_OPTION_BOOL;
     option.label="Enable Speed Changer";option.value=&native_enabled;option.onChange=native_speed_changed;
     if(loader->AddOption(&option)!=DK2ML_OK)return 1;
-    speed_gate_return=image+(speed_113?0x2d2d30:0x2c3052);
-    void *update=loader->ResolveSymbol("GameCommon::Net_PollMessages");
-    if((uintptr_t)update!=image+(speed_113?0x218b70:0x211f10)||loader->CreateSafeHook(update,speed_gate_pre,speed_gate_post,NULL)!=DK2ML_OK||
+    speed_gate_return=image+0x2c3052;
+    void *update=loader->ResolveSymbol(speed_113?"GameServer::Update":"GameCommon::Net_PollMessages");
+    if((uintptr_t)update!=image+(speed_113?0x2ebac0:0x211f10)||loader->CreateSafeHook(update,speed_gate_pre,speed_gate_post,NULL)!=DK2ML_OK||
         loader->EnableHook(update)!=DK2ML_OK)return 1;
     if(loader->Subscribe(DK2ML_EVENT_FRAME,native_frame,NULL)!=DK2ML_OK)return 1;
     // The exact instruction/PE checks and patch execute on the game window thread,
@@ -369,9 +377,9 @@ BOOL WINAPI DllMain(HINSTANCE instance,DWORD reason,LPVOID reserved){
         destroy_speed_hud();
 #endif
         InterlockedExchange(&speed_update_armed,0);
-        if(installed){DWORD old,ignored;if(VirtualProtect(target,sizeof expected_112,PAGE_EXECUTE_READWRITE,&old)){
-            memcpy(target,original_instruction,sizeof expected_112);VirtualProtect(target,sizeof expected_112,old,&ignored);
-            FlushInstructionCache(GetCurrentProcess(),target,sizeof expected_112);
+        if(installed){DWORD old,ignored;if(VirtualProtect(target,original_length,PAGE_EXECUTE_READWRITE,&old)){
+            memcpy(target,original_instruction,original_length);VirtualProtect(target,original_length,old,&ignored);
+            FlushInstructionCache(GetCurrentProcess(),target,original_length);
         }}
     }
     return TRUE;

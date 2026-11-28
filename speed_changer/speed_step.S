@@ -46,3 +46,24 @@ speed_done:
     pop rax
     popfq
     jmp QWORD PTR [rip + speed_resume]
+
+#ifdef R5K_QOL_UI
+.global speed_step_stub_113
+speed_step_stub_113:
+    pushfq
+    movaps xmm0, xmm1
+    cmp DWORD PTR [rip + speed_update_armed], 0
+    je multiply_113
+    cmp DWORD PTR [rip + speed_feature_enabled], 0
+    je multiply_113
+    cmp DWORD PTR [r14 + 0x290], 1
+    jne multiply_113
+    movss xmm0, DWORD PTR [rip + speed_selected_factor]
+    test DWORD PTR [r14 + 0x294], 0x20000
+    je multiply_113
+    movss xmm0, DWORD PTR [rip + speed_slow_factor]
+multiply_113:
+    mulss xmm0, xmm7
+    popfq
+    jmp QWORD PTR [rip + speed_resume]
+#endif

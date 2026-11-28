@@ -65,6 +65,10 @@ static void draw_speed_settings(bool *found){
 #endif
 typedef struct {float x,y;} ImVec2;
 static bool (*imgui_button_ex)(const char *,const ImVec2 *,int);
+static bool (*imgui_button)(const char *,const ImVec2 *);
+static bool draw_settings_button(const char *label,const ImVec2 *size){
+    return imgui_button?imgui_button(label,size):imgui_button_ex(label,size,0);
+}
 static void **imgui_context;
 static int off_imgui_io,off_want_capture_mouse,off_want_capture_keyboard;
 static bool captured_input;
@@ -106,6 +110,7 @@ static bool (*begin_tab_bar)(const char *,int);
 static void (*end_tab_bar)(void);
 static bool (*begin_tab_item)(const char *,bool *,int);
 static void (*separator_ex)(int,float);
+static void (*separator)(void);
 static void (*spacing)(void);
 static void (*dummy)(const ImVec2 *);
 static int tab_no_push_id, separator_horizontal, tab_scroll;
@@ -203,18 +208,19 @@ static void draw_shared_menu(void) {
     if(qol_page<0)qol_cancel_capture();
     visible_qol_page=qol_page;
     spacing();
-    separator_ex(separator_horizontal,1.0f);
+    if(separator_ex)separator_ex(separator_horizontal,1.0f);
+    else separator();
     spacing();
     if(qol_page>=0){
         qol_draw_reset(qol_page);
         imgui_same_line(0.0f,-1.0f);
     }
     if(reset_modules&&found){
-        if(imgui_button_ex("Reset this tab",&automatic_size,0))
+        if(draw_settings_button("Reset this tab",&automatic_size))
             for(const char *const *key=reset_modules;*key;key++)r5k_reset_module(get_provider(*key));
         imgui_same_line(0.0f,-1.0f);
     }
-    if(imgui_button_ex("Close",&automatic_size,0))window_open=false;
+    if(draw_settings_button("Close",&automatic_size))window_open=false;
 }
 #endif
 
@@ -244,7 +250,7 @@ static void frame(const DK2ML_Event *event,void *user) {
             if(i)imgui_same_line(0.0f,-1.0f);
             char label[64];
             snprintf(label,sizeof label,selected_category==(int)i?"[%s]##category%u":"%s##category%u",categories[i],i);
-            if(imgui_button_ex(label,&automatic_size,0))selected_category=(int)i;
+            if(draw_settings_button(label,&automatic_size))selected_category=(int)i;
         }
         switch(selected_category){
         case 0:
@@ -270,7 +276,7 @@ static void frame(const DK2ML_Event *event,void *user) {
             break;
         }
         if(!found)imgui_text("No settings modules in this category are currently loaded.");
-        if(imgui_button_ex("Close",&automatic_size,0))window_open=false;
+        if(draw_settings_button("Close",&automatic_size))window_open=false;
 #endif
     }
     imgui_end();
@@ -291,6 +297,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
     imgui_text=(void (*)(const char *,...))api->ResolveSymbol("ImGui::Text");
     imgui_same_line=(void (*)(float,float))api->ResolveSymbol("ImGui::SameLine");
     imgui_button_ex=(bool (*)(const char *,const ImVec2 *,int))api->ResolveSymbol("ImGui::ButtonEx");
+    imgui_button=imgui_button_ex?NULL:(void*)api->ResolveSymbol("ImGui::Button");
     imgui_context=api->ResolveSymbol("GImGui");
     imgui_slider=(void*)api->ResolveSymbol("ImGui::SliderScalar");
 #ifdef R5K_QOL_UI
@@ -298,16 +305,19 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
     end_tab_bar=(void*)api->ResolveSymbol("ImGui::EndTabBar");
     begin_tab_item=(void*)api->ResolveSymbol("ImGui::BeginTabItem");
     separator_ex=(void*)api->ResolveSymbol("ImGui::SeparatorEx");
+    separator=separator_ex?NULL:(void*)api->ResolveSymbol("ImGui::Separator");
     spacing=(void*)api->ResolveSymbol("ImGui::Spacing");
     dummy=(void*)api->ResolveSymbol("ImGui::Dummy");
-    if(!begin_tab_bar||!end_tab_bar||!begin_tab_item||!separator_ex||!spacing||!dummy)return 2;
+    if(!begin_tab_bar||!end_tab_bar||!begin_tab_item||(!separator_ex&&!separator)||!spacing||!dummy)return 2;
     int64_t flag;
     if(api->GetEnumValue("ImGuiTabItemFlags_","ImGuiTabItemFlags_NoPushId",&flag)!=DK2ML_OK)return 2;
     tab_no_push_id=(int)flag;
     if(api->GetEnumValue("ImGuiTabBarFlags_","ImGuiTabBarFlags_FittingPolicyScroll",&flag)!=DK2ML_OK)return 2;
     tab_scroll=(int)flag;
-    if(api->GetEnumValue("ImGuiSeparatorFlags_","ImGuiSeparatorFlags_Horizontal",&flag)!=DK2ML_OK)return 2;
-    separator_horizontal=(int)flag;
+    if(separator_ex){
+        if(api->GetEnumValue("ImGuiSeparatorFlags_","ImGuiSeparatorFlags_Horizontal",&flag)!=DK2ML_OK)return 2;
+        separator_horizontal=(int)flag;
+    }
 #endif
     int64_t integer_enum=0;
     if(!imgui_slider||api->GetEnumValue("ImGuiDataType_","ImGuiDataType_S32",&integer_enum)!=DK2ML_OK)return 2;
@@ -325,7 +335,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
     off_imgui_io=api->GetFieldOffset("ImGuiContext","IO");
     off_want_capture_mouse=api->GetFieldOffset("ImGuiIO","WantCaptureMouse");
     off_want_capture_keyboard=api->GetFieldOffset("ImGuiIO","WantCaptureKeyboard");
-    if(!imgui_begin||!imgui_end||!imgui_text||!imgui_button_ex||!imgui_context||
+    if(!imgui_begin||!imgui_end||!imgui_text||(!imgui_button_ex&&!imgui_button)||!imgui_context||
        !imgui_same_line||
        off_imgui_io<0||off_want_capture_mouse<0||off_want_capture_keyboard<0)return 2;
     const char *flags[]={"ImGuiWindowFlags_AlwaysAutoResize","ImGuiWindowFlags_NoSavedSettings"};

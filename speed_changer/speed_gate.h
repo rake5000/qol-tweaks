@@ -7,13 +7,19 @@ volatile LONG speed_update_armed;
 static uintptr_t speed_gate_return;
 static int speed_gate_pre(DK2ML_Regs *regs,void *user){
     (void)user;
+    if(speed_113){
+        regs->scratch[0]=(unsigned)InterlockedExchange(&speed_update_armed,
+            native_enabled&&installed&&!rejected&&!native_api->IsReplaying()?1:0);
+        return DK2ML_CALL_ORIGINAL;
+    }
     regs->scratch[0]=regs->stack&&regs->stack[0]==speed_gate_return;
     if(regs->scratch[0])InterlockedExchange(&speed_update_armed,0);
     return DK2ML_CALL_ORIGINAL;
 }
 static void speed_gate_post(DK2ML_Regs *regs,void *user){
     (void)user;
+    if(speed_113){InterlockedExchange(&speed_update_armed,(LONG)regs->scratch[0]);return;}
     if(regs->scratch[0])InterlockedExchange(&speed_update_armed,
-        native_enabled&&installed&&!rejected&&(!speed_113||!native_api->IsReplaying())?1:0);
+        native_enabled&&installed&&!rejected?1:0);
 }
 #endif

@@ -98,10 +98,10 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
             loader->GetFieldOffset("GameClient","m_interpGameTimeSource")!=0x107288||
             loader->GetFieldOffset("GameClient","m_interpGameTimeTarget")!=0x10728c)return 1;
         interpolation_offset=0x107280;
-        image=(uintptr_t)loader->ResolveSymbol("GameClient::UpdateCamera")-0x187c20;
+        image=(uintptr_t)loader->ResolveSymbol("GameClient::UpdateCamera")-0x1920e0;
     }else image=(uintptr_t)loader->ResolveSymbol("GameClient::UpdateCamera")-0x187f70;
     if (configure(loader, "Play replays at normal speed", "Plays recorded action at 100% speed and keeps the mission-ending slowdown.", replay_113) ||
-        !hook_named("GameClient::AdvanceSnapshot", replay_113?0x183510:0x183990, advance_pre, advance_post) ||
+        !hook_named("GameClient::AdvanceSnapshot", replay_113?0x18da60:0x183990, advance_pre, advance_post) ||
         api->Subscribe(DK2ML_EVENT_FRAME, frame, NULL) != DK2ML_OK) return 1;
     api->Log("Ready: normal-speed replay action and original mission-ending slowdown.");
     return 0;

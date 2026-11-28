@@ -83,7 +83,7 @@ int main(void){
  option_count=0;registered=0;headers=0;memset(section_seen,0,sizeof section_seen);
  collect("Enable additional hotkeys",DK2ML_OPTION_BOOL,&order_enabled);
  assert(qol_ui_register()==0);
- assert(headers==5&&registered==55&&section_seen[0]==1&&section_seen[1]==1&&section_seen[2]==1&&section_seen[3]==1&&section_seen[4]==1);
+ assert(headers==5&&registered==53&&section_seen[0]==1&&section_seen[1]==1&&section_seen[2]==1&&section_seen[3]==1&&section_seen[4]==1);
  reset_settings(0);
  assert(bindings[0].key=='G'&&bindings[18].key=='M');
  puts("PASS: 1.13 exposes all sections and retains saved bindings.");

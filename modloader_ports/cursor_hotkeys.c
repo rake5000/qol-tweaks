@@ -260,7 +260,7 @@ static uint32_t body_under_cursor(void) {
     uintptr_t input=0,client=0;uint32_t slot=0,id=0;
     uintptr_t client_slot=image+0xff0ea8,input_slot=image+0xfe8a68;
 #ifdef R5K_QOL_UI
-    if(basic_113){client_slot=global_client_113;input_slot=image+0x100e6e0;}
+    if(basic_113){client_slot=global_client_113;input_slot=image+0x1032e90;}
 #endif
     if(!read_at(input_slot,&input,8)||!input||
         !read_at(client_slot,&client,8)||!client)return 0;
@@ -406,7 +406,7 @@ static int preserve_plan_save(DK2ML_Regs *regs,void *user) {
     uintptr_t caller=(uintptr_t)regs->stack[0]-image;
 #ifdef R5K_QOL_UI
     if(basic_113){
-        if(caller==0x18563f&&(uintptr_t)DK2ML_Arg(regs,3)==client+0x7e280)return DK2ML_SKIP_ORIGINAL;
+        if(caller==0x18f2c6&&(uintptr_t)DK2ML_Arg(regs,3)==client+0x7e280)return DK2ML_SKIP_ORIGINAL;
     }else
 #endif
     if(preserve_automatic_plan(caller,(uintptr_t)DK2ML_Arg(regs,3),
@@ -723,7 +723,7 @@ static bool toggle_autoexecution(unsigned code) {
         bool saved_own=own_autoexec;
         own_autoexec=true;
         // ExecuteGoCode's Shift branch tail-calls this command with the client and code.
-        ((void (*)(void*,int))(image+0x189ab0))((void*)client,(int)code);
+        ((void (*)(void*,int))(image+0x194310))((void*)client,(int)code);
         own_autoexec=saved_own;
         return true;
     }
@@ -936,6 +936,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
         }
         unsigned binding = binding_for((unsigned)wp);
 #ifdef R5K_QOL_UI
+        if(basic_113&&binding==BIND_DOOR)binding=0;
         if(binding>=QOL_CLEAR_ALL)binding=0;
 #endif
         if(binding==BIND_DOOR&&!(lp&((LPARAM)1<<30)))memset(&door_clean,0,sizeof(door_clean));
@@ -1133,7 +1134,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
         api=loader;
         uintptr_t camera=(uintptr_t)api->ResolveSymbol("GameClient::UpdateCamera");
         if(!camera)return 1;
-        image=camera-0x187c20;
+        image=camera-0x1920e0;
         if(!resolve_basic_hotkeys()){
             api->Log("Cursor Hotkeys 1.13: waypoint menu or input layout unavailable.");
             return 1;
@@ -1158,9 +1159,9 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
         net_event_fn=(uintptr_t)api->ResolveSymbol("Entity_Common::Net_AddReliableEvent");
         write_bits_fn=(uintptr_t)api->ResolveSymbol("BitPacker::WriteBits");
         write_varuint_fn=(uintptr_t)api->ResolveSymbol("BitPacker::WriteVarUInt");
-        if(human_type_113!=image+0xaa050||hovered_human_fn!=image+0x135e60||
-            delete_path_fn!=image+0xb7830||remove_visuals_fn!=image+0x9c890||
-            net_event_fn!=image+0x1fe630||write_bits_fn!=image+0x227e00||write_varuint_fn!=image+0x228430||
+        if(human_type_113!=image+0xaa980||hovered_human_fn!=image+0x13e210||
+            delete_path_fn!=image+0xb8e60||remove_visuals_fn!=image+0x99b60||
+            net_event_fn!=image+0x20e2c0||write_bits_fn!=image+0x234700||write_varuint_fn!=image+0x234d20||
             api->GetFieldOffset("Human_Client","m_path")!=3472||
             api->GetFieldOffset("GameClient","m_savedPlan")!=0x7e280||
             api->GetFieldOffset("GameClient","m_savedPlanSize")!=0xfe280||
@@ -1169,26 +1170,25 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
         void *click=api->ResolveSymbol("PlayGUIClicked");
         if(click)play_gui_click=(void (*)(void))click;
         // Anchor the internal autoexecution command to the verified Shift branch.
-        static const unsigned char shift_branch[]={0xe9,0x1a,0x17,0,0};
-        void *auto_toggle=(void*)(image+0x189ab0);
-        if(global_client_113!=image+0x1038c40||
-            (uintptr_t)api->ResolveSymbol("GameClient::ExecuteGoCode")!=image+0x188370||
-            (image==(uintptr_t)GetModuleHandleW(NULL)&&memcmp((void*)(image+0x188391),shift_branch,sizeof shift_branch)))return 1;
+        static const unsigned char shift_branch[]={0xe9,0x9e,0x10,0,0};
+        void *auto_toggle=(void*)(image+0x194310);
+        if(global_client_113!=image+0x105d3f0||
+            (uintptr_t)api->ResolveSymbol("GameClient::ExecuteGoCode")!=image+0x193250||
+            (image==(uintptr_t)GetModuleHandleW(NULL)&&memcmp((void*)(image+0x19326d),shift_branch,sizeof shift_branch)))return 1;
         if(configure(loader,"Enable additional hotkeys","Waypoint-wheel movement, reload, go-code and path shortcuts.",true)||
             !configure_door_settings()||
             !init_door_sequence()||
-            !init_position_only()||
             api->CreateSafeHook(auto_toggle,observe_go_code,NULL,NULL)!=DK2ML_OK||
             api->EnableHook(auto_toggle)!=DK2ML_OK||
-            !hook_named("GameInput::CheckKeyboardEvents",0x12c9e0,NULL,input_post)||
-            !hook_named("GameInput::Update",0x12f870,NULL,button_input_post)||
-            !hook_named("SavedPlan::Save",0x1d51c0,preserve_plan_save,NULL)||
-            !hook_named("SavedPlan::Load",0x1d60b0,NULL,saved_plan_loaded)||
+            !hook_named("GameInput::CheckKeyboardEvents",0x134910,NULL,input_post)||
+            !hook_named("GameInput::Update",0x137790,NULL,button_input_post)||
+            !hook_named("SavedPlan::Save",0x1e2e90,preserve_plan_save,NULL)||
+            !hook_named("SavedPlan::Load",0x1e3630,NULL,saved_plan_loaded)||
             api->Subscribe(DK2ML_EVENT_MAP_LOADED,defaults_loaded,NULL)!=DK2ML_OK||
             !install_window_bridge()||
             api->Subscribe(DK2ML_EVENT_FRAME,frame,NULL)!=DK2ML_OK||
             !configure_pie_right_drag())return 1;
-        api->Log("Cursor Hotkeys 1.13: waypoint shortcuts and both door commands ready.");
+        api->Log("Cursor Hotkeys 1.13: waypoint shortcuts and Open Door Only ready; Center-Check unavailable.");
         return 0;
     }
 #endif

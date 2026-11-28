@@ -33,7 +33,7 @@ typedef struct {float x,y;} NameVec2;
 static uintptr_t imgui_context_slot;
 static void *(*viewport_draw_list)(void*,unsigned,const char*);
 static void *(*measure_overlay_text)(void*,NameVec2*,float,float,float,const char*,const char*,const char**);
-static void (*render_overlay_text)(void*,void*,float,NameVec2,unsigned,const float*,const char*,const char*,float,bool);
+static void (*render_overlay_char)(void*,void*,float,NameVec2,unsigned,unsigned short);
 static struct {
     unsigned status, valid, eligible, wanted, captured;
     unsigned draw, empty, inactive, client_missing, font_missing, projection_rejected, submitted;
@@ -79,7 +79,7 @@ static void draw_settings(void){
 }
 static const R5K_SettingsModule settings={sizeof(R5K_SettingsModule),"Selected Trooper Name",draw_settings};
 static void*get_font(void){
-    uintptr_t manager=pointer(image+(names_113?0x1038c90:0xff0ef0));if(!manager)return NULL;
+    uintptr_t manager=pointer(image+(names_113?0x105d440:0xff0ef0));if(!manager)return NULL;
     int count=*(int*)(manager+0x10);uintptr_t fonts=pointer(manager+8);
     if(count<1||count>256||!fonts)return NULL;
     for(int j=0;j<count;j++){
@@ -126,14 +126,13 @@ static void draw_name_overlay(const DK2ML_Event *event,void *user){
     capture_count=0;
     ++hover_trace.draw;
     if(!count){++hover_trace.empty;goto sample;}
-    uintptr_t client=pointer(image+0x1038c40),context=pointer(imgui_context_slot);
+    uintptr_t client=pointer(image+0x105d3f0),context=pointer(imgui_context_slot);
     if(!client||!context){++hover_trace.client_missing;goto sample;}
     uintptr_t font=pointer(context+15248),viewports=pointer(context+16432);
     uintptr_t viewport=viewports?pointer(viewports):0;
     if(!font||!viewport){++hover_trace.font_missing;goto sample;}
     const float *area=(const float*)(viewport+4);
     if(!isfinite(area[2])||!isfinite(area[3])||area[2]<=0||area[3]<=0)goto sample;
-    float clip[]={area[0],area[1],area[0]+area[2],area[1]+area[3]};
     void *draw=viewport_draw_list((void*)viewport,1,"##Foreground");
     if(!draw)goto sample;
     for(unsigned i=0;i<count;i++){
@@ -147,10 +146,21 @@ static void draw_name_overlay(const DK2ML_Event *event,void *user){
         measure_overlay_text((void*)font,&extent,size,INFINITY,0,label->name,NULL,NULL);
         NameVec2 pos={roundf(area[0]+x*area[2]-extent.x*.5f),roundf(area[1]+(1-y)*area[3]+gap)};
         static const int offsets[][2]={{-1,0},{1,0},{0,-1},{0,1},{0,0}};
-        for(unsigned pass=0;pass<5;pass++){
-            NameVec2 at={pos.x+offsets[pass][0],pos.y+offsets[pass][1]};
-            render_overlay_text((void*)font,draw,size,at,pass==4?0xffcce3f0:0xff080808,
-                clip,label->name,NULL,0,false);
+        wchar_t chars[52];
+        int length=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,label->name,-1,chars,52);
+        for(int j=0;j+1<length;j++){
+            wchar_t ch=chars[j];
+            if(ch>=0xd800&&ch<=0xdbff&&j+2<length){++j;ch=0xfffd;}
+            for(unsigned pass=0;pass<5;pass++){
+                NameVec2 at={pos.x+offsets[pass][0],pos.y+offsets[pass][1]};
+                render_overlay_char((void*)font,draw,size,at,pass==4?0xffcce3f0:0xff080808,ch);
+            }
+            char utf8[5]={0};
+            if(WideCharToMultiByte(CP_UTF8,0,&ch,1,utf8,4,NULL,NULL)){
+                NameVec2 advance={0};
+                measure_overlay_text((void*)font,&advance,size,INFINITY,0,utf8,NULL,NULL);
+                pos.x+=advance.x;
+            }
         }
         ++hover_trace.submitted;
     }
@@ -160,12 +170,12 @@ sample:
 static int before_status(DK2ML_Regs*r,void*u){(void)u;r->scratch[0]=DK2ML_Arg(r,0);r->scratch[1]=DK2ML_Arg(r,5);return 0;}
 static void after_status(DK2ML_Regs*r,void*u){
     (void)u;if(!enabled)return;
-    uintptr_t human=r->scratch[0],input=pointer(image+(names_113?0x100e6e0:0xfe8a68)),renderer=pointer(image+(names_113?0x1038c30:0xff0e98));
+    uintptr_t human=r->scratch[0],input=pointer(image+(names_113?0x1032e90:0xfe8a68));
     LabelList*list=(void*)r->scratch[1];
     if(names_113)++hover_trace.status;
-    if(!input||!renderer||!human||!list_valid(list))return;
+    if(!input||!human||!list_valid(list)||(!names_113&&!pointer(image+0xff0e98)))return;
     if(names_113)++hover_trace.valid;
-    uintptr_t client=pointer(image+(names_113?0x1038c40:0xff0ea8));if(!client||!eligible_human(human,client))return;
+    uintptr_t client=pointer(image+(names_113?0x105d3f0:0xff0ea8));if(!client||!eligible_human(human,client))return;
     if(names_113)++hover_trace.eligible;
     bool selected=(uintptr_t)selected_human((void*)input)==human;
     if(!wants_name(selected,!selected&&!always_names&&hover_names&&hover_target_matches(human)))return;
@@ -237,7 +247,7 @@ static void draw_names(uintptr_t renderer){
     if(!names_113&&api->IsGameMenuOpen())return;
     uintptr_t client=0;
     if(names_113){
-        client=pointer(image+0x1038c40);
+        client=pointer(image+0x105d3f0);
         if(!client){++hover_trace.client_missing;return;}
     }
     void *font=get_font();
@@ -298,7 +308,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API*loader,const DK2ML_PluginInfo*
     unsigned version=api->GetGameVersion();if(version!=112&&version!=113)return 1;
     names_113=version==113;
     void*base_symbol=api->ResolveSymbol("GameClient::UpdateCamera");if(!base_symbol)return 1;
-    image=(uintptr_t)base_symbol-(names_113?0x187c20:0x187f70);
+    image=(uintptr_t)base_symbol-(names_113?0x1920e0:0x187f70);
     if(!names_113&&image==(uintptr_t)GetModuleHandleW(NULL)&&memcmp((void*)(image+0xdfbe7),"\x48\x8b\x0d\x02\x13\xf1\x00",7))return 1;
     renderer_camera=names_113?0x528:0x4f8;
     camera_view=48;camera_projection=names_113?180:176;camera_left=names_113?156:152;
@@ -312,10 +322,10 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API*loader,const DK2ML_PluginInfo*
         api->GetFieldOffset("Camera","m_left")!=(int)camera_left||
         api->GetFieldOffset("GameClient","m_viewport")!=(int)client_viewport||
         (names_113&&api->GetFieldOffset("GameClient","m_camera")!=(int)client_camera))return 1;
-    if(!resolve((void**)&hovered_human,"GameInput::GetHoveredHuman",names_113?0x135e60:0x137160)||
-        !resolve((void**)&selected_human,"GameInput::GetSelectedHuman",names_113?0x135dc0:0x137090)||
-        !resolve((void**)&build_letters,"Render2D::BuildFontLetters",names_113?0x1aa740:0x1a87f0)||
-        !resolve((void**)&print_text,"Render2D::PrintText_Immediate",names_113?0x1ab480:0x1a97d0)||
+    if(!resolve((void**)&hovered_human,"GameInput::GetHoveredHuman",names_113?0x13e210:0x137160)||
+        !resolve((void**)&selected_human,"GameInput::GetSelectedHuman",names_113?0x13e170:0x137090)||
+        !resolve((void**)&build_letters,"Render2D::BuildFontLetters",names_113?0x1b3a30:0x1a87f0)||
+        !resolve((void**)&print_text,"Render2D::PrintText_Immediate",names_113?0x1b5230:0x1a97d0)||
         (!names_113&&!resolve((void**)&map_to_screen,"?ConvertMapToScreenCoords@GameClient@@QEBA?AVVector2@@VVector3@@@Z",0x184d70)))return 1;
 
     checkbox=(void*)api->ResolveSymbol("ImGui::Checkbox");slider=(void*)api->ResolveSymbol("ImGui::SliderScalar");text=(void*)api->ResolveSymbol("ImGui::Text");
@@ -330,18 +340,18 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API*loader,const DK2ML_PluginInfo*
     const char*labels[]={"Enable trooper names","Name size","Gap below feet","Show names on trooper or path hover","Always show trooper names"};void*values[]={&enabled,&size,&gap,&hover_names,&always_names};
     for(int j=0;j<5;j++){options[j].structSize=sizeof(DK2ML_Option);options[j].type=(j==1||j==2)?DK2ML_OPTION_FLOAT:DK2ML_OPTION_BOOL;options[j].label=labels[j];options[j].value=values[j];options[j].min=j==1?9:0;options[j].max=j==1?24:40;options[j].onChange=save;if(api->AddOption(options+j)!=DK2ML_OK)return 1;}
     if(api->PublishInterface("Rake5000.Settings.SelectedTrooperName",R5K_SETTINGS_API_VERSION,&settings)!=DK2ML_OK)return 1;
-    void*target;if(!resolve(&target,"BatchLOSBlockerAndCoverAndROE",names_113?0x169430:0x1699c0))return 1;
+    void*target;if(!resolve(&target,"BatchLOSBlockerAndCoverAndROE",names_113?0x176150:0x1699c0))return 1;
     if(api->CreateSafeHook(target,before_status,after_status,NULL)!=DK2ML_OK||api->EnableHook(target)!=DK2ML_OK)return 1;
-    void*gui;if(!resolve(&gui,"GameRenderer::RenderGUIItems",names_113?0x1560e0:0x156b70)||api->CreateSafeHook(gui,draw_label,finish_draw_labels,NULL)!=DK2ML_OK||api->EnableHook(gui)!=DK2ML_OK)return 1;
+    void*gui;if(!resolve(&gui,"GameRenderer::RenderGUIItems",names_113?0x161470:0x156b70)||api->CreateSafeHook(gui,draw_label,finish_draw_labels,NULL)!=DK2ML_OK||api->EnableHook(gui)!=DK2ML_OK)return 1;
     if(names_113){
         imgui_context_slot=(uintptr_t)api->ResolveSymbol("GImGui");
         if(!imgui_context_slot||
             api->GetFieldOffset("ImGuiContext","Font")!=15248||
             api->GetFieldOffset("ImGuiContext","Viewports")!=16424||
             api->GetFieldOffset("ImGuiViewport","Pos")!=4||api->GetFieldOffset("ImGuiViewport","Size")!=12||
-            !resolve((void**)&viewport_draw_list,"GetViewportDrawList",0x2e3030)||
-            !resolve((void**)&measure_overlay_text,"ImFont::CalcTextSizeA",0x305890)||
-            !resolve((void**)&render_overlay_text,"ImFont::RenderText",0x305cb0)||
+            !resolve((void**)&viewport_draw_list,"GetViewportDrawList",0x2fc350)||
+            !resolve((void**)&measure_overlay_text,"ImFont::CalcTextSizeA",0x31f1a0)||
+            !resolve((void**)&render_overlay_char,"ImFont::RenderChar",0x31f550)||
             api->Subscribe(DK2ML_EVENT_FRAME,draw_name_overlay,NULL)!=DK2ML_OK)return 1;
     }
     api->Log("Ready 1.2.0: selected/body-or-path-hover/all friendly trooper names, native camera-projected labels. Author Rake5000.");return 0;

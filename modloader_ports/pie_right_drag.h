@@ -59,7 +59,7 @@ __attribute__((naked)) static void pie_capture_bridge_113(void) {
         "movb $0, pie_capture_request(%rip)\n"
         "cmpb $0, pie_capture_toggle(%rip)\n"
         "je 2f\n"
-        "cmpl %r11d, %edx\n"
+        "cmpl %esi, %edx\n"
         "jne 2f\n"
         "movl $6, %edx\n"
         "2: jmp *pie_capture_change(%rip)\n"
@@ -69,7 +69,7 @@ __attribute__((naked)) static void pie_capture_bridge_113(void) {
         "jz 3f\n"
         "movl $6, %edx\n"
         "jmp 2b\n"
-        "3: testb %r10b, %r10b\n"
+        "3: testb $1, %r11b\n"
         "jnz 5f\n"
         "jmp *pie_capture_look_update(%rip)\n"
         "5: jmp *pie_capture_cycle_113(%rip)\n");
@@ -98,7 +98,7 @@ static bool pie_override_active(void) {
 static int pie_initial_pre(DK2ML_Regs *r,void *user) {
     (void)user;
     // Button2_Drag checks strafe/locked look first, then the pie modifier.
-    r->scratch[0]=r->stack&&r->stack[0]==image+(basic_113?0x131d1f:0x133662)&&
+    r->scratch[0]=r->stack&&r->stack[0]==image+(basic_113?0x13aadc:0x133662)&&
         DK2ML_Arg(r,0)==3&&pie_override_active();
     return DK2ML_CALL_ORIGINAL;
 }
@@ -143,13 +143,13 @@ static const unsigned char pie_capture_original[]={
     0x84,0xc0,0x74,0x0a,0xba,6,0,0,0,0xe9,0x96,0,0,0
 };
 static const unsigned char pie_capture_original_113[]={
-    0xba,5,0,0,0,0xeb,0x52,0xb9,3,0,0,0,0xe8,0x40,0xb7,0x0f,0,
-    0x84,0xc0,0x74,7,0xba,6,0,0,0,0xeb,0x3d,0x45,0x84,0xd2,0x74,0x4b
+    0xba,5,0,0,0,0xeb,0x52,0xb9,3,0,0,0,0xe8,0x37,0x09,0x10,0,
+    0x84,0xc0,0x74,7,0xba,6,0,0,0,0xeb,0x3d,0x41,0xf6,0xc3,1,0x74,0x49
 };
 static bool pie_capture_matches(void) {
     unsigned char bytes[sizeof pie_capture_original];
     size_t length=basic_113?sizeof pie_capture_original_113:sizeof pie_capture_original;
-    return read_at(image+(basic_113?0x13312f:0x134ce8),bytes,length)&&
+    return read_at(image+(basic_113?0x13ba48:0x134ce8),bytes,length)&&
         !memcmp(bytes,basic_113?pie_capture_original_113:pie_capture_original,length);
 }
 
@@ -176,16 +176,16 @@ static void pie_install_frame(const DK2ML_Event *event,void *user) {
     memcpy(jump+normal_offset,normal_entry,sizeof normal_entry);
     memcpy(jump+16,&strafe,sizeof strafe);
     memcpy(jump+24,&normal,sizeof normal);
-    void *site=(void*)(image+(basic_113?0x13312f:0x134ce8));
+    void *site=(void*)(image+(basic_113?0x13ba48:0x134ce8));
     DWORD previous,ignored;
     if(!VirtualProtect(site,length,PAGE_EXECUTE_READWRITE,&previous)){
         api->Log("Pie on right-drag unavailable: cannot install drag decision.");
         return;
     }
     pie_capture_vanilla=image+0x134d0a;
-    pie_capture_change=image+(basic_113?0x133188:0x134da0);
-    pie_capture_look_update=image+(basic_113?0x13319b:0x134db2);
-    pie_capture_cycle_113=image+0x133150;
+    pie_capture_change=image+(basic_113?0x13baa1:0x134da0);
+    pie_capture_look_update=image+(basic_113?0x13bab3:0x134db2);
+    pie_capture_cycle_113=image+0x13ba6a;
     memcpy(site,jump,length);
     VirtualProtect(site,length,previous,&ignored);
     FlushInstructionCache(GetCurrentProcess(),site,length);
@@ -193,11 +193,11 @@ static void pie_install_frame(const DK2ML_Event *event,void *user) {
 }
 
 static bool configure_pie_right_drag(void) {
-    unsigned captured=basic_113?0x132f10:0x1349e0;
-    unsigned down=basic_113?0x22e810:0x226100;
-    unsigned just_down=basic_113?0x22e880:0x226170;
+    unsigned captured=basic_113?0x13b830:0x1349e0;
+    unsigned down=basic_113?0x23c320:0x226100;
+    unsigned just_down=basic_113?0x23c390:0x226170;
     if((uintptr_t)api->ResolveSymbol("GameInput::Captured_RClickDrag")!=image+captured||
-       (uintptr_t)api->ResolveSymbol("GameInput::Button2_Drag")!=image+(basic_113?0x1319b0:0x1332e0)||
+       (uintptr_t)api->ResolveSymbol("GameInput::Button2_Drag")!=image+(basic_113?0x13a6f0:0x1332e0)||
        (image==(uintptr_t)GetModuleHandleW(NULL)&&!pie_capture_matches())){
         api->Log("Pie on right-drag unavailable: unsupported drag code.");
         return true;
