@@ -335,9 +335,9 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
     }
     DK2ML_MenuButton button={0};
     button.structSize=sizeof button;
-    button.icon="data/textures/gui/rake5000_modules_normal.dds";
-    button.iconHover="data/textures/gui/rake5000_modules_hover.dds";
-    button.tooltip="Mod Settings";
+    button.icon="data/textures/gui/rake5000_modules_normal.tga";
+    button.iconHover="data/textures/gui/rake5000_modules_hover.tga";
+    button.tooltip="Rake5000 mod settings";
     button.onClick=open_settings;
     if(api->AddMenuButton(&button)!=DK2ML_OK||
        api->Subscribe(DK2ML_EVENT_FRAME,frame,NULL)!=DK2ML_OK)return 4;
