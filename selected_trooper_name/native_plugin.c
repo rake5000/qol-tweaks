@@ -119,7 +119,7 @@ static void draw_speed_indicator(uintptr_t renderer, void *font, int value){
     float model[16]={0};
     model[0]=model[5]=scale;model[10]=model[15]=1;
     model[3]=(camera[0x98/4]+camera[0x9c/4])*0.5f+height*(106.0f/1440.0f)-right*scale;
-    model[7]=fminf(camera[0xa0/4],camera[0xa4/4])+height*(47.0f/1440.0f)-bottom*scale;
+    model[7]=fminf(camera[0xa0/4],camera[0xa4/4])+height*(38.0f/1440.0f)-bottom*scale;
     print_text(model,(void*)(renderer+0x5a8),(void*)(renderer+0x528),font,
         value<0?0xff8fdbff:0xffdbe5e7,label);
 }
