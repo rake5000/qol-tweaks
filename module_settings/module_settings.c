@@ -16,6 +16,7 @@ DK2ML_PLUGIN_MANIFEST(3,"Rake5000 Module Settings","0.1.8","Rake5000","",112);
 static const DK2ML_API *api;
 static bool window_open;
 static int window_flags;
+#define SETTINGS_LABEL "Rake5000 mod settings"
 static bool (*imgui_begin)(const char *,bool *,int);
 static void (*imgui_end)(void);
 static void (*imgui_text)(const char *,...);
@@ -232,7 +233,7 @@ static void frame(const DK2ML_Event *event,void *user) {
 #else
     set_input_capture(imgui_wants_game_input());
 #endif
-    if(imgui_begin("Mod Settings##shared_settings",&window_open,window_flags)) {
+    if(imgui_begin(SETTINGS_LABEL "##shared_settings",&window_open,window_flags)) {
 #ifdef R5K_QOL_UI
         draw_shared_menu();
 #else
@@ -337,7 +338,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
     button.structSize=sizeof button;
     button.icon="data/textures/gui/rake5000_modules_normal.tga";
     button.iconHover="data/textures/gui/rake5000_modules_hover.tga";
-    button.tooltip="Rake5000 mod settings";
+    button.tooltip=SETTINGS_LABEL;
     button.onClick=open_settings;
     if(api->AddMenuButton(&button)!=DK2ML_OK||
        api->Subscribe(DK2ML_EVENT_FRAME,frame,NULL)!=DK2ML_OK)return 4;
