@@ -181,7 +181,7 @@ static bool is_default_slow_speed(const DK2ML_Option *option){
 
 int qol_ui_register(void){
  for(int group=0;group<5;group++){
-  if(basic_113&&group>1&&group!=3)continue;
+  if(basic_113&&group==2)continue;
   DK2ML_Option header={0};header.structSize=sizeof header;header.type=DK2ML_OPTION_HEADER;header.label=sections[group];
   if(api->AddOption(&header)!=DK2ML_OK)return 1;
   for(size_t i=0;i<option_count;i++)if(options[i].section==group){
@@ -206,7 +206,7 @@ int qol_ui_register(void){
  }
  if(basic_113){
   DK2ML_Option status={0};status.structSize=sizeof status;status.type=DK2ML_OPTION_HEADER;
-  status.label="1.13 test build: waypoint shortcuts and normal-speed replays";
+  status.label="1.13 test build: waypoint shortcuts, normal-speed replays and trooper names";
   if(api->AddOption(&status)!=DK2ML_OK)return 1;
  }
  DK2ML_Option reset={0};reset.structSize=sizeof reset;reset.type=DK2ML_OPTION_BUTTON;
@@ -254,10 +254,10 @@ void qol_draw_settings(int page,void (*heading)(const char *)){
    "Go-code assignment is available. Autoexecution shortcuts await porting.",
    "Open & Center-Check and Open door only await porting to 1.13.",
    "Speed Changer awaits porting to 1.13.",
-   "Selected Trooper Name awaits porting to 1.13."
+   NULL
   };
-  text("%s",unavailable[page]);
-  if(page>1&&page!=3)return;
+  if(unavailable[page])text("%s",unavailable[page]);
+  if(page==2)return;
  }
  if(page!=0)heading(sections[page]);
  if(page==2){
@@ -282,7 +282,7 @@ void qol_draw_settings(int page,void (*heading)(const char *)){
  if(conflict_notice)text("That combination is already assigned or reserved. Previous binding kept.");
 }
 void qol_draw_reset(int page){
- if(basic_113&&page>1&&page!=3)return;
+ if(basic_113&&page==2)return;
  const Vec2 automatic={0,0};
  if(button("Reset this tab",&automatic,0))reset_settings(page);
 }

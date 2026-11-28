@@ -83,7 +83,7 @@ int main(void){
  option_count=0;registered=0;headers=0;memset(section_seen,0,sizeof section_seen);
  collect("Enable additional hotkeys",DK2ML_OPTION_BOOL,&order_enabled);
  assert(qol_ui_register()==0);
- assert(headers==4&&registered==26&&section_seen[0]==1&&section_seen[1]==1&&!section_seen[2]&&section_seen[3]==1);
+ assert(headers==5&&registered==27&&section_seen[0]==1&&section_seen[1]==1&&!section_seen[2]&&section_seen[3]==1&&section_seen[4]==1);
  assert(qol_basic_action('G')&&qol_basic_action('J')&&qol_basic_action('4'));
  assert(!qol_basic_action('F')&&!qol_basic_action(QOL_AUTO_A)&&!qol_basic_action(QOL_CLEAR_ALL));
  reset_settings(0);
