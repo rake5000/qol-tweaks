@@ -30,7 +30,8 @@ typedef struct {
 static CapturedLabel captures[64];
 static unsigned capture_count;
 typedef struct {float x,y;} NameVec2;
-static uintptr_t imgui_context_slot;
+static uintptr_t imgui_context_slot,gui_manager_slot;
+static float name_hud_height;
 static void *(*viewport_draw_list)(void*,unsigned,const char*);
 static void *(*measure_overlay_text)(void*,NameVec2*,float,float,float,const char*,const char*,const char**);
 static void (*render_overlay_char)(void*,void*,float,NameVec2,unsigned,unsigned short);
@@ -121,11 +122,30 @@ static bool project_trooper(uintptr_t client,const float point[3],float *x,float
     return isfinite(*x)&&isfinite(*y)&&*x>=0&&*x<=1&&*y>=0&&*y<=1;
 }
 
+static bool pause_menu_captures_input(void){
+    uintptr_t manager=pointer(gui_manager_slot);
+    if(!manager)return false;
+    int count=*(const int*)(manager+128);
+    if(count<=0||count>=100)return false;
+    uintptr_t stack=pointer(manager+120);
+    uintptr_t top=stack?pointer(stack+(count-1)*sizeof(uintptr_t)):0;
+    if(!top)return false;
+    static const char *const panels[]={
+        "Menu_Ingame","Menu_Ingame_Campaign","Menu_Ingame_Replay","Menu_Ingame_OldReplay"
+    };
+    for(unsigned i=0;i<sizeof panels/sizeof panels[0];i++){
+        void *panel=api->GuiFind(NULL,panels[i]);
+        if((uintptr_t)panel==top&&api->GuiIsShown(panel))return true;
+    }
+    return false;
+}
+
 static void draw_name_overlay(const DK2ML_Event *event,void *user){
     unsigned count=enabled?capture_count:0;
     capture_count=0;
     ++hover_trace.draw;
     if(!count){++hover_trace.empty;goto sample;}
+    if(pause_menu_captures_input())goto sample;
     uintptr_t client=pointer(image+0x105d3f0),context=pointer(imgui_context_slot);
     if(!client||!context){++hover_trace.client_missing;goto sample;}
     uintptr_t font=pointer(context+15248),viewports=pointer(context+16432);
@@ -133,6 +153,9 @@ static void draw_name_overlay(const DK2ML_Event *event,void *user){
     if(!font||!viewport){++hover_trace.font_missing;goto sample;}
     const float *area=(const float*)(viewport+4);
     if(!isfinite(area[2])||!isfinite(area[3])||area[2]<=0||area[3]<=0)goto sample;
+    // Convert the saved native HUD-unit settings to overlay pixels.
+    float scale=area[3]/(name_hud_height>0?name_hud_height:1440.0f);
+    float font_size=size*scale,feet_gap=gap*scale;
     void *draw=viewport_draw_list((void*)viewport,1,"##Foreground");
     if(!draw)goto sample;
     for(unsigned i=0;i<count;i++){
@@ -143,8 +166,8 @@ static void draw_name_overlay(const DK2ML_Event *event,void *user){
             continue;
         }
         NameVec2 extent={0};
-        measure_overlay_text((void*)font,&extent,size,INFINITY,0,label->name,NULL,NULL);
-        NameVec2 pos={roundf(area[0]+x*area[2]-extent.x*.5f),roundf(area[1]+(1-y)*area[3]+gap)};
+        measure_overlay_text((void*)font,&extent,font_size,INFINITY,0,label->name,NULL,NULL);
+        NameVec2 pos={roundf(area[0]+x*area[2]-extent.x*.5f),roundf(area[1]+(1-y)*area[3]+feet_gap)};
         static const int offsets[][2]={{-1,0},{1,0},{0,-1},{0,1},{0,0}};
         wchar_t chars[52];
         int length=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,label->name,-1,chars,52);
@@ -153,12 +176,12 @@ static void draw_name_overlay(const DK2ML_Event *event,void *user){
             if(ch>=0xd800&&ch<=0xdbff&&j+2<length){++j;ch=0xfffd;}
             for(unsigned pass=0;pass<5;pass++){
                 NameVec2 at={pos.x+offsets[pass][0],pos.y+offsets[pass][1]};
-                render_overlay_char((void*)font,draw,size,at,pass==4?0xffcce3f0:0xff080808,ch);
+                render_overlay_char((void*)font,draw,font_size,at,pass==4?0xffcce3f0:0xff080808,ch);
             }
             char utf8[5]={0};
             if(WideCharToMultiByte(CP_UTF8,0,&ch,1,utf8,4,NULL,NULL)){
                 NameVec2 advance={0};
-                measure_overlay_text((void*)font,&advance,size,INFINITY,0,utf8,NULL,NULL);
+                measure_overlay_text((void*)font,&advance,font_size,INFINITY,0,utf8,NULL,NULL);
                 pos.x+=advance.x;
             }
         }
@@ -291,6 +314,11 @@ static int draw_label(DK2ML_Regs *regs,void *user){
     (void)user;
     regs->scratch[0]=DK2ML_Arg(regs,0);
     if(!names_113)draw_names(regs->scratch[0]);
+    else if(regs->scratch[0]){
+        const float *bounds=(const float*)(regs->scratch[0]+renderer_camera+camera_left);
+        float height=fabsf(bounds[3]-bounds[2]);
+        if(isfinite(height)&&height>0)name_hud_height=height;
+    }
     return DK2ML_CALL_ORIGINAL;
 }
 
@@ -345,7 +373,11 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API*loader,const DK2ML_PluginInfo*
     void*gui;if(!resolve(&gui,"GameRenderer::RenderGUIItems",names_113?0x161470:0x156b70)||api->CreateSafeHook(gui,draw_label,finish_draw_labels,NULL)!=DK2ML_OK||api->EnableHook(gui)!=DK2ML_OK)return 1;
     if(names_113){
         imgui_context_slot=(uintptr_t)api->ResolveSymbol("GImGui");
-        if(!imgui_context_slot||
+        gui_manager_slot=(uintptr_t)api->ResolveSymbol("g_pGUIManager");
+        if(!imgui_context_slot||!gui_manager_slot||
+            api->GetFieldOffset("GUIManager","m_exclusiveInputStack")!=112||
+            api->GetFieldOffset("List<GUI::Item *>","m_list")!=8||
+            api->GetFieldOffset("List<GUI::Item *>","m_elements")!=16||
             api->GetFieldOffset("ImGuiContext","Font")!=15248||
             api->GetFieldOffset("ImGuiContext","Viewports")!=16424||
             api->GetFieldOffset("ImGuiViewport","Pos")!=4||api->GetFieldOffset("ImGuiViewport","Size")!=12||
