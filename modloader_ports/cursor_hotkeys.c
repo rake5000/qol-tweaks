@@ -196,15 +196,15 @@ static LRESULT close_waypoint_wheel(WNDPROC forward,HWND window) {
 }
 
 static LRESULT send_toggle_key(WNDPROC forward,HWND window,UINT message,WPARAM key,LPARAM data,unsigned binding) {
+    bool grenade=binding==BIND_FLASH||binding==BIND_FRAG;
+    bool suppression=binding==BIND_SUPPRESSION;
 #ifdef R5K_QOL_UI
-    if(basic_113){
+    if(basic_113&&!grenade&&!suppression){
         if(message==WM_KEYDOWN&&try_toggle_order_113(binding))return close_waypoint_wheel(forward,window);
         return CallWindowProcW(forward,window,message,key,data);
     }
 #endif
-    bool grenade=binding==BIND_FLASH||binding==BIND_FRAG;
     bool door=binding==BIND_DOOR||binding==BIND_DOOR_ONLY;
-    bool suppression=binding==BIND_SUPPRESSION;
     if(message==WM_KEYDOWN&&(grenade||door||suppression)) {
         // Do not mutate temporary native waypoints between input updates.
         // GameInput::Update refreshes them before GUIManager::UpdateInput.
@@ -225,7 +225,11 @@ static _Atomic uint32_t clear_body_id;
 static uintptr_t hovered_human_fn,delete_path_fn,remove_visuals_fn,net_event_fn,write_bits_fn,write_varuint_fn;
 static bool friendly_human(uintptr_t human,uintptr_t client,uint32_t *id) {
     uint32_t player=0,owners=0;unsigned char enabled_human=0;
-    return human&&read_at(client+0x10581c,&player,4)&&player<32&&
+    unsigned player_offset=0x10581c;
+#ifdef R5K_QOL_UI
+    if(basic_113)player_offset=0x10583c;
+#endif
+    return human&&read_at(client+player_offset,&player,4)&&player<32&&
         read_at(human+0x32c,&owners,4)&&owners==(1u<<player)&&
         read_at(human+0x333,&enabled_human,1)&&enabled_human!=0&&
         read_at(human+0x10,id,4)&&*id!=0;
@@ -459,6 +463,7 @@ typedef struct {
     char name[192];
     unsigned visited;
 } GrenadeChoice;
+static unsigned wheel_clicked_event=73;
 static bool read_item_name(uintptr_t item,char name[192]) {
     uintptr_t text=0;
     if(!read_at(item+40,&text,8)||!text)return false;
@@ -478,7 +483,7 @@ static void scan_grenade_buttons(void *node,unsigned depth,GrenadeChoice *best) 
         for(int i=0;i<count;++i) {
             uintptr_t action=0;uint32_t kind=0,event=0,type=0;int slot=0;
             if(!read_at(actions+i*8,&action,8)||!action||!read_at(action+8,&kind,4)||kind!=6||
-                !read_at(action+40,&event,4)||event!=73||!read_at(action+64,&type,4)||type!=23||
+                !read_at(action+40,&event,4)||event!=wheel_clicked_event||!read_at(action+64,&type,4)||type!=23||
                 !read_at(action+68,&slot,4)||slot<=0||slot>=27||slot>=best->slot)continue;
             uintptr_t equipment=best->human+1072+(uintptr_t)slot*88,item=0;int quantity=0;unsigned equipment_type=0;
             char name[192];
@@ -501,14 +506,23 @@ static bool read_action_wheel(ActionWheelContext *context) {
     uintptr_t gui=0,table=0,fn=0;
     uint32_t owner=0;
     ActionWheelContext c={0};
-    if(!read_at(image+0xfe71a8,&gui,8)||!gui||!read_at(gui+8,&c.wheel,8)||!c.wheel||
+    uintptr_t gui_slot=image+0xfe71a8,client_slot=image+0xff0ea8,type=actionwp_get_type;
+    unsigned pool=0x2e8,limit=100001,owner_offset=0x220,wheel_id=856;
+#ifdef R5K_QOL_UI
+    if(basic_113){
+        gui_slot=global_gui;client_slot=global_client_113;type=waypoint_type_113;
+        pool=entity_pool_offset_113;limit=waypoint_pool_limit_113;
+        owner_offset=owner_offset_113;wheel_id=wheel_id_offset_113;
+    }
+#endif
+    if(!type||!read_at(gui_slot,&gui,8)||!gui||!read_at(gui+8,&c.wheel,8)||!c.wheel||
         !api->GuiIsShown((void*)c.wheel)||
-        !read_at(c.wheel+856,&c.waypoint_id,4)||!c.waypoint_id||c.waypoint_id>100000||
-        !read_at(image+0xff0ea8,&c.client,8)||!c.client||
-        !read_at(c.client+0x2e8+c.waypoint_id*8,&c.waypoint,8)||!c.waypoint||
-        !read_at(c.waypoint,&table,8)||!table||!read_at(table+8,&fn,8)||fn!=actionwp_get_type||
-        !read_at(c.waypoint+0x220,&owner,4)||owner>100000||
-        !read_at(c.client+0x2e8+owner*8,&c.human,8)||!friendly_human(c.human,c.client,&c.human_id))
+        !read_at(c.wheel+wheel_id,&c.waypoint_id,4)||!c.waypoint_id||c.waypoint_id>=limit||
+        !read_at(client_slot,&c.client,8)||!c.client||
+        !read_at(c.client+pool+c.waypoint_id*8,&c.waypoint,8)||!c.waypoint||
+        !read_at(c.waypoint,&table,8)||!table||!read_at(table+8,&fn,8)||fn!=type||
+        !read_at(c.waypoint+owner_offset,&owner,4)||owner>=limit||
+        !read_at(c.client+pool+owner*8,&c.human,8)||!friendly_human(c.human,c.client,&c.human_id))
         return false;
     *context=c;
     return true;
@@ -569,10 +583,15 @@ static void button_input_post(DK2ML_Regs *regs,void *user) {
     unsigned binding=atomic_load(&native_button_request);
     if(!binding){native_button_since=0;native_button_updates=0;return;}
     state s={0};HWND window=NULL;uintptr_t gui=0,wheel=0;uint32_t wp=0;
+    uintptr_t gui_slot=image+0xfe71a8;
+    unsigned wheel_id=856;
+#ifdef R5K_QOL_UI
+    if(basic_113){gui_slot=global_gui;wheel_id=wheel_id_offset_113;}
+#endif
     if(!enabled||!game_foreground(&window)||window!=hooked_window||
        !get_state(&s)||!s.playing||!s.wheel_open||
-       !read_at(image+0xfe71a8,&gui,8)||!read_at(gui+8,&wheel,8)||
-       !read_at(wheel+856,&wp,4)||!wp) {
+       !read_at(gui_slot,&gui,8)||!read_at(gui+8,&wheel,8)||
+       !read_at(wheel+wheel_id,&wp,4)||!wp) {
         atomic_store(&native_button_request,0);native_button_since=0;
         native_button_updates=0;return;
     }
@@ -638,6 +657,17 @@ static bool toggle_autoexecution(unsigned code) {
     uintptr_t client = 0;
     uint32_t client_flags = 0;
     unsigned char saved_shift = 0;
+#ifdef R5K_QOL_UI
+    if(basic_113){
+        if(code<1||code>4||!read_at(global_client_113,&client,sizeof client)||!client)return false;
+        bool saved_own=own_autoexec;
+        own_autoexec=true;
+        // ExecuteGoCode's Shift branch tail-calls this command with the client and code.
+        ((void (*)(void*,int))(image+0x189ab0))((void*)client,(int)code);
+        own_autoexec=saved_own;
+        return true;
+    }
+#endif
     if (code < 1 || code > 4 ||
         !read_at(image + 0xff0ea8, &client, sizeof(client)) ||
         !read_at(client + 0x7e210, &client_flags, sizeof(client_flags)) ||
@@ -668,6 +698,12 @@ static void saved_plan_loaded(DK2ML_Regs *regs,void *user) {
 }
 static int observe_go_code(DK2ML_Regs *regs,void *user) {
     (void)user;unsigned char shift=0;
+#ifdef R5K_QOL_UI
+    if(basic_113){
+        if(enabled&&!own_autoexec)defaults_manual(&auto_defaults,(unsigned)DK2ML_Arg(regs,1));
+        return DK2ML_CALL_ORIGINAL;
+    }
+#endif
     if(enabled&&!own_autoexec&&read_at(image+0xff2099,&shift,1)&&shift)
         defaults_manual(&auto_defaults,(unsigned)DK2ML_Arg(regs,1));
     return DK2ML_CALL_ORIGINAL;
@@ -683,11 +719,21 @@ static void input_post(DK2ML_Regs *regs, void *user) {
     state s = {0};
     uintptr_t client = 0, map = 0;
     uint32_t game_time = 0, client_flags = 0;
+    uintptr_t client_slot=image+0xff0ea8;
+    unsigned auto_mask_offset=0xfe2a4;
+    bool legacy=true;
+#ifdef R5K_QOL_UI
+    if(basic_113){
+        client_slot=global_client_113;
+        auto_mask_offset=0xfe2c0;
+        legacy=false;
+    }
+#endif
     if (!get_state(&s) ||
-        !read_at(image + 0xff0ea8, &client, sizeof(client)) ||
+        !read_at(client_slot, &client, sizeof(client)) ||
         !read_at(client + 0x28, &map, sizeof(map)) ||
         !read_at(client + 8, &game_time, sizeof(game_time)) ||
-        !read_at(client + 0x7e210, &client_flags, sizeof(client_flags))) return;
+        (legacy&&!read_at(client + 0x7e210, &client_flags, sizeof(client_flags)))) return;
     if (!s.playing || !map || (client_flags & 0x80)) {
         atomic_store(&clear_body_id,0);
         defaults_reset(&auto_defaults);
@@ -701,15 +747,17 @@ static void input_post(DK2ML_Regs *regs, void *user) {
     if (!game_foreground(&window) || window != hooked_window ||
         s.wheel_open || s.other_panel) {atomic_store(&clear_body_id,0);return;}
 
-    update_door_sequence(client,map);
-    if(clear_all||clear_id)position_cancel_user_clear(clear_id,clear_all);
-    if(clear_all){door_request.pending=false;if(clear_every_plan(client,map)&&play_gui_click)play_gui_click();}
-    else if(clear_id){if(door_request.owner==clear_id)door_request.pending=false;if(clear_hovered_plan(clear_id,client)&&play_gui_click)play_gui_click();}
+    if(legacy){
+        update_door_sequence(client,map);
+        if(clear_all||clear_id)position_cancel_user_clear(clear_id,clear_all);
+        if(clear_all){door_request.pending=false;if(clear_every_plan(client,map)&&play_gui_click)play_gui_click();}
+        else if(clear_id){if(door_request.owner==clear_id)door_request.pending=false;if(clear_hovered_plan(clear_id,client)&&play_gui_click)play_gui_click();}
+    }
 
     if(atomic_exchange(&autoexecute_reapply,false))defaults_reset(&auto_defaults);
     if(requests&AUTOEXEC_ALL_REQUEST){
         uint32_t flags=0;
-        if(!read_at(client+0xfe2a4,&flags,sizeof(flags)))return;
+        if(!read_at(client+auto_mask_offset,&flags,sizeof(flags)))return;
         requests=autoexec_all_changes(flags);
         // Keep the mission preset from overwriting this explicit choice.
         for(unsigned code=1;code<=4;++code)defaults_manual(&auto_defaults,code);
@@ -718,7 +766,7 @@ static void input_post(DK2ML_Regs *regs, void *user) {
         if(requests&(1u<<(code-1)))defaults_manual(&auto_defaults,code);
     if (!auto_defaults.initialized) {
         uint32_t flags=0;
-        if(!read_at(client+0xfe2a4,&flags,sizeof(flags)))return;
+        if(!read_at(client+auto_mask_offset,&flags,sizeof(flags)))return;
         unsigned target=autoexecute_go_codes?15u:0u;
         unsigned missing=defaults_missing_for(&auto_defaults,flags,target);
         for(unsigned code=1;code<=4;++code)
@@ -738,9 +786,6 @@ static void input_post(DK2ML_Regs *regs, void *user) {
 static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     WNDPROC forward = original_proc;
     if (message == autoexec_message) {
-#ifdef R5K_QOL_UI
-        if(basic_113)return 0;
-#endif
         HWND active;
         state s = {0};
         if (game_foreground(&active) && active == window &&
@@ -759,7 +804,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
         if (forward && game_foreground(&active) && active == window &&
             get_state(&s) && s.playing && s.wheel_open
 #ifdef R5K_QOL_UI
-            && (!basic_113 || (!s.other_panel && qol_basic_action((unsigned)wp)))
+            && (!basic_113 || (!s.other_panel && qol_ported_wheel_action((unsigned)wp)))
 #endif
         ) {
             LPARAM scan = (LPARAM)MapVirtualKeyW((UINT)wp, MAPVK_VK_TO_VSC) << 16;
@@ -790,7 +835,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
             }
         }
 #ifdef R5K_QOL_UI
-        if(!basic_113&&((action>=QOL_AUTO_A&&action<QOL_AUTO_A+4)||action==QOL_AUTO_ALL)) {
+        if((action>=QOL_AUTO_A&&action<QOL_AUTO_A+4)||action==QOL_AUTO_ALL) {
 #else
         if (wp >= '1' && wp <= '4' &&
             (GetKeyState(VK_CONTROL) & 0x8000) &&
@@ -827,7 +872,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
         }
         unsigned binding = binding_for((unsigned)wp);
 #ifdef R5K_QOL_UI
-        if(binding>=QOL_CLEAR_ALL||(basic_113&&!qol_basic_action(binding)))binding=0;
+        if(binding>=QOL_CLEAR_ALL||(basic_113&&!qol_ported_wheel_action(binding)))binding=0;
 #endif
         if(binding==BIND_DOOR&&!(lp&((LPARAM)1<<30)))memset(&door_clean,0,sizeof(door_clean));
         HWND active;
@@ -1022,6 +1067,9 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
     basic_113=loader->GetGameVersion()==113;
     if(basic_113){
         api=loader;
+        uintptr_t camera=(uintptr_t)api->ResolveSymbol("GameClient::UpdateCamera");
+        if(!camera)return 1;
+        image=camera-0x187c20;
         if(!resolve_basic_hotkeys()){
             api->Log("Cursor Hotkeys 1.13: waypoint menu or input layout unavailable.");
             return 1;
@@ -1030,8 +1078,28 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
             if(resolve_action_toggle_113())api->Log("Cursor Hotkeys 1.13: native waypoint toggles ready.");
             else api->Log("Cursor Hotkeys 1.13: go-code and Wait for Clear toggles ready; action removal unavailable.");
         }
-        else api->Log("Cursor Hotkeys 1.13: go-code removal unavailable; assignment still active.");
+        else return 1;
+        int64_t clicked=0;
+        if(api->GetEnumValue("GUI::Events::eEventType","GUI_GAME_WAYPOINT_CLICKED",&clicked)!=DK2ML_OK||clicked!=81||
+            api->GetFieldOffset("GUI::Item","m_eventProperties")!=168||
+            api->GetFieldOffset("GUI::Item","m_bAcceptInput")!=144||
+            api->GetFieldOffset("GUI::sAction","eventId")!=40||api->GetTypeSize("GUI::sAction")!=80||
+            api->GetFieldOffset("Human_Client","m_inventory")!=1072||
+            api->GetTypeSize("Equipment_Client")!=88)return 1;
+        wheel_clicked_event=(unsigned)clicked;
+        // Anchor the internal autoexecution command to the verified Shift branch.
+        static const unsigned char shift_branch[]={0xe9,0x1a,0x17,0,0};
+        void *auto_toggle=(void*)(image+0x189ab0);
+        if(global_client_113!=image+0x1038c40||
+            (uintptr_t)api->ResolveSymbol("GameClient::ExecuteGoCode")!=image+0x188370||
+            (image==(uintptr_t)GetModuleHandleW(NULL)&&memcmp((void*)(image+0x188391),shift_branch,sizeof shift_branch)))return 1;
         if(configure(loader,"Enable additional hotkeys","Waypoint-wheel movement, reload, go-code and path shortcuts.",true)||
+            !configure_door_settings()||
+            api->CreateSafeHook(auto_toggle,observe_go_code,NULL,NULL)!=DK2ML_OK||
+            api->EnableHook(auto_toggle)!=DK2ML_OK||
+            !hook_named("GameInput::CheckKeyboardEvents",0x12c9e0,NULL,input_post)||
+            !hook_named("GameInput::Update",0x12f870,NULL,button_input_post)||
+            api->Subscribe(DK2ML_EVENT_MAP_LOADED,defaults_loaded,NULL)!=DK2ML_OK||
             !install_window_bridge()||
             api->Subscribe(DK2ML_EVENT_FRAME,frame,NULL)!=DK2ML_OK)return 1;
         api->Log("Cursor Hotkeys 1.13: basic waypoint-wheel shortcuts ready.");

@@ -120,7 +120,7 @@ static void reset_settings(int page){
  memcpy(updated,bindings,sizeof updated);
  for(size_t i=0;i<COUNT(updated);i++){
   if(page>=0&&updated[i].section!=page)continue;
-  if(basic_113&&!qol_basic_action(updated[i].action))continue;
+  if(basic_113&&!qol_ported_action(updated[i].action))continue;
   updated[i].key=updated[i].last_key=updated[i].default_key;
   updated[i].mods=updated[i].last_mods=updated[i].default_mods;
  }
@@ -190,7 +190,7 @@ int qol_ui_register(void){
    if(api->AddOption(&o)!=DK2ML_OK)return 1;
   }
   for(size_t i=0;i<COUNT(bindings);i++)if(bindings[i].section==group&&
-      (!basic_113||qol_basic_action(bindings[i].action))){
+      (!basic_113||qol_ported_action(bindings[i].action))){
    DK2ML_Option o={0};o.structSize=sizeof o;o.type=DK2ML_OPTION_KEY;o.label=bindings[i].label;
    o.value=&bindings[i].key;o.onChange=binding_changed;o.user=(void*)(uintptr_t)i;
    o.tooltip="Click to change the keyboard key; Backspace/Delete unbinds. Choose modifiers in the next row. Duplicate QOL combinations are refused.";
@@ -206,7 +206,7 @@ int qol_ui_register(void){
  }
  if(basic_113){
   DK2ML_Option status={0};status.structSize=sizeof status;status.type=DK2ML_OPTION_HEADER;
-  status.label="1.13 test build: waypoint shortcuts, normal-speed replays and trooper names";
+  status.label="1.13 test build: Open & Center-Check and some Controls shortcuts are pending";
   if(api->AddOption(&status)!=DK2ML_OK)return 1;
  }
  DK2ML_Option reset={0};reset.structSize=sizeof reset;reset.type=DK2ML_OPTION_BUTTON;
@@ -220,7 +220,7 @@ static void key_label(const QolBinding *b,char *label,size_t size){
  snprintf(label,size,"%s%s%s%s",(b->mods&QOL_CTRL)?"Ctrl+":"",(b->mods&QOL_ALT)?"Alt+":"",(b->mods&QOL_SHIFT)?"Shift+":"",key);
 }
 static void draw_binding(size_t i){
- if(basic_113&&!qol_basic_action(bindings[i].action))return;
+ if(basic_113&&!qol_ported_action(bindings[i].action))return;
  float em=text_line_height ? text_line_height() : 18.0f;
  const Vec2 key_size={17.0f*em,0};
  char key[100],label[160];
@@ -250,10 +250,10 @@ void qol_draw_settings(int page,void (*heading)(const char *)){
  if(page<0||page>=(int)COUNT(sections))return;
  if(basic_113){
   static const char *unavailable[]={
-   "1.13 test build: waypoint-wheel shortcuts only.\nGrenade, suppression, right-drag pie and troop-plan shortcuts await porting.",
-   "Go-code assignment is available. Autoexecution shortcuts await porting.",
+   "Right-drag pie and full trooper-plan clearing await porting to 1.13.",
+   NULL,
    "Open & Center-Check and Open door only await porting to 1.13.",
-   "Speed Changer awaits porting to 1.13.",
+   NULL,
    NULL
   };
   if(unavailable[page])text("%s",unavailable[page]);

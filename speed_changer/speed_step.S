@@ -3,6 +3,12 @@
 // Preserve all registers except the intended xmm0 result, plus flags.
 .intel_syntax noprefix
 .text
+#ifdef R5K_QOL_UI
+// Both builds copy their server pointer into rcx immediately before the patch.
+#define SERVER rcx
+#else
+#define SERVER rbx
+#endif
 .global speed_step_stub
 speed_step_stub:
     pushfq
@@ -17,12 +23,17 @@ speed_step_stub:
     cmp DWORD PTR [rip + speed_feature_enabled], 0
     je native_speed
 #endif
-    cmp DWORD PTR [rbx + 0x290], 1
+    cmp DWORD PTR [SERVER + 0x290], 1
     jne native_speed
     mov rax, QWORD PTR [rip + speed_replay_slot]
+#ifdef R5K_QOL_UI
+    test rax, rax
+    je check_slow_motion
+#endif
     cmp QWORD PTR [rax], 0
     jne native_speed
-    test DWORD PTR [rbx + 0x294], 0x20000
+check_slow_motion:
+    test DWORD PTR [SERVER + 0x294], 0x20000
     jne slow_speed
     mulss xmm0, DWORD PTR [rip + speed_selected_factor]
     jmp speed_done
@@ -30,7 +41,7 @@ slow_speed:
     mulss xmm0, DWORD PTR [rip + speed_slow_factor]
     jmp speed_done
 native_speed:
-    mulss xmm0, DWORD PTR [rbx + 0x7e210]
+    mulss xmm0, DWORD PTR [SERVER + 0x7e210]
 speed_done:
     pop rax
     popfq

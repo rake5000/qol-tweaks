@@ -13,6 +13,7 @@ static int speed_gate_pre(DK2ML_Regs *regs,void *user){
 }
 static void speed_gate_post(DK2ML_Regs *regs,void *user){
     (void)user;
-    if(regs->scratch[0])InterlockedExchange(&speed_update_armed,native_enabled&&installed&&!rejected?1:0);
+    if(regs->scratch[0])InterlockedExchange(&speed_update_armed,
+        native_enabled&&installed&&!rejected&&(!speed_113||!native_api->IsReplaying())?1:0);
 }
 #endif

@@ -321,7 +321,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
     speed_option.type=DK2ML_OPTION_INT;speed_option.label="Default slow-motion speed";
     speed_option.tooltip="Starting custom speed for the normal/custom toggle. The increase and decrease bindings update the remembered speed.";
     speed_option.value=&default_slow_percent;speed_option.min=10;speed_option.max=90;speed_option.onChange=save_speed_default;
-    if(api->GetGameVersion()!=113&&api->AddOption(&speed_option)!=DK2ML_OK)return 2;
+    if(api->AddOption(&speed_option)!=DK2ML_OK)return 2;
     off_imgui_io=api->GetFieldOffset("ImGuiContext","IO");
     off_want_capture_mouse=api->GetFieldOffset("ImGuiIO","WantCaptureMouse");
     off_want_capture_keyboard=api->GetFieldOffset("ImGuiIO","WantCaptureKeyboard");

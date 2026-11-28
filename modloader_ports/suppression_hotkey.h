@@ -10,7 +10,7 @@ static void *find_suppression_button(void *node,unsigned depth,unsigned *visited
   for(int i=0;i<count;++i){
    uintptr_t action=0;uint32_t kind=0,event=0,type=0;
    if(read_at(actions+i*8,&action,8)&&action&&read_at(action+8,&kind,4)&&kind==6&&
-      read_at(action+40,&event,4)&&event==73&&read_at(action+64,&type,4)&&type==17)return node;
+      read_at(action+40,&event,4)&&event==wheel_clicked_event&&read_at(action+64,&type,4)&&type==17)return node;
   }
  void *children[128];int n=api->GuiChildren(node,children,128);if(n<0||n>128)return NULL;
  for(int i=0;i<n;++i){void *found=find_suppression_button(children[i],depth+1,visited);if(found)return found;}

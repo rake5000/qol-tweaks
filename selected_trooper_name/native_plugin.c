@@ -157,8 +157,8 @@ static void draw_speed_indicator(uintptr_t renderer, void *font, int value){
         right=fmaxf(right,vertices[i].p[0]);
         bottom=fminf(bottom,vertices[i].p[1]);
     }
-    const float *camera=(const float*)(renderer+0x4f8);
-    float height=fabsf(camera[0xa4/4]-camera[0xa0/4]);
+    const float *bounds=(const float*)(renderer+renderer_camera+camera_left);
+    float height=fabsf(bounds[3]-bounds[2]);
     float font_height=(float)*(int*)((uintptr_t)font+0x30);
     if(!isfinite(height)||height<=0||font_height<=0)return;
 
@@ -166,9 +166,9 @@ static void draw_speed_indicator(uintptr_t renderer, void *font, int value){
     float scale=height*(16.0f/1440.0f)/font_height;
     float model[16]={0};
     model[0]=model[5]=scale;model[10]=model[15]=1;
-    model[3]=(camera[0x98/4]+camera[0x9c/4])*0.5f+height*(106.0f/1440.0f)-right*scale;
-    model[7]=fminf(camera[0xa0/4],camera[0xa4/4])+height*(38.0f/1440.0f)-bottom*scale;
-    print_text(model,(void*)(renderer+0x5a8),(void*)(renderer+0x528),font,
+    model[3]=(bounds[0]+bounds[1])*0.5f+height*(106.0f/1440.0f)-right*scale;
+    model[7]=fminf(bounds[2],bounds[3])+height*(38.0f/1440.0f)-bottom*scale;
+    print_text(model,(void*)(renderer+renderer_camera+camera_projection),(void*)(renderer+renderer_camera+camera_view),font,
         value<0?0xff8fdbff:0xffdbe5e7,label);
 }
 
@@ -287,7 +287,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API*loader,const DK2ML_PluginInfo*
     DK2ML_PostFn after_gui=NULL;
 #ifdef R5K_QOL_UI
     // Draw the speed text after the game paints the panel behind it.
-    if(!names_113)after_gui=after_draw_labels;
+    after_gui=after_draw_labels;
 #endif
     void*gui;if(!resolve(&gui,"GameRenderer::RenderGUIItems",names_113?0x1560e0:0x156b70)||api->CreateSafeHook(gui,draw_label,after_gui,NULL)!=DK2ML_OK||api->EnableHook(gui)!=DK2ML_OK)return 1;
     api->Log("Ready 1.2.0: selected/body-or-path-hover/all friendly trooper names, native camera-projected labels. Author Rake5000.");return 0;
