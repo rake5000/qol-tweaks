@@ -25,6 +25,27 @@ static void*(*map_to_screen)(void*,float*,const float*);
 typedef struct {uintptr_t human;char name[52];float screen[2];} CapturedLabel;
 static CapturedLabel captures[64];
 static unsigned capture_count;
+typedef struct {
+    unsigned status_calls, valid_inputs, eligible, wanted, projected;
+} NameTrace;
+static NameTrace name_trace;
+
+static void trace_name_draw(NameTrace trace,unsigned captured,unsigned drawn,const char *reason){
+    static ULONGLONG last_log;
+    static unsigned last_captured=~0u,last_drawn=~0u,log_count;
+    static const char *last_reason;
+    if(!names_113||log_count>=80)return;
+    if(captured==last_captured&&drawn==last_drawn&&reason==last_reason)return;
+    ULONGLONG now=GetTickCount64();
+    if(now-last_log<500)return;
+    last_log=now;
+    last_captured=captured;
+    last_drawn=drawn;
+    last_reason=reason;
+    ++log_count;
+    api->Log("Trooper name trace: %s; status=%u inputs=%u eligible=%u wanted=%u projected=%u captured=%u submitted=%u",
+        reason,trace.status_calls,trace.valid_inputs,trace.eligible,trace.wanted,trace.projected,captured,drawn);
+}
 
 static bool(*checkbox)(const char*,bool*);
 static bool(*slider)(const char*,int,void*,const void*,const void*,const char*,int);
@@ -97,10 +118,14 @@ static void after_status(DK2ML_Regs*r,void*u){
     (void)u;if(!enabled)return;
     uintptr_t human=r->scratch[0],input=pointer(image+(names_113?0x100e6e0:0xfe8a68)),renderer=pointer(image+(names_113?0x1038c30:0xff0e98));
     LabelList*list=(void*)r->scratch[1];
+    if(names_113)++name_trace.status_calls;
     if(!input||!renderer||!human||!list_valid(list))return;
+    if(names_113)++name_trace.valid_inputs;
     uintptr_t client=pointer(image+(names_113?0x1038c40:0xff0ea8));if(!client||!eligible_human(human,client))return;
+    if(names_113)++name_trace.eligible;
     bool selected=(uintptr_t)selected_human((void*)input)==human;
     if(!wants_name(selected,!selected&&!always_names&&hover_names&&hover_target_matches(human)))return;
+    if(names_113)++name_trace.wanted;
     for(unsigned i=0;i<capture_count;++i)if(captures[i].human==human)return;
     if(capture_count>=64)return;
     // Human_Client::m_id is the same inline UTF-8 name used by UpdateHumanProfile.
@@ -110,6 +135,7 @@ static void after_status(DK2ML_Regs*r,void*u){
     float point[3];memcpy(point,(void*)(human+0x6c),sizeof(point));
     for(int k=0;k<3;k++)if(!isfinite(point[k]))return;
     float x,y;if(!project_trooper(client,point,&x,&y))return;
+    if(names_113)++name_trace.projected;
     CapturedLabel*label=&captures[capture_count++];label->human=human;
     memcpy(label->name,name,(size_t)length);label->name[length]=0;
     label->screen[0]=x;label->screen[1]=y;
@@ -178,9 +204,20 @@ static int draw_label(DK2ML_Regs*r,void*u){
 #ifdef R5K_QOL_UI
     r->scratch[0]=DK2ML_Arg(r,0);
 #endif
-    if(!count_labels||names_menu_open())return 0;
-    uintptr_t renderer=DK2ML_Arg(r,0);if(!renderer||!*(bool*)(renderer+0x13))return 0;
-    void*font=get_font();if(!font)return 0;
+    NameTrace trace=name_trace;
+    name_trace=(NameTrace){0};
+    uintptr_t renderer=DK2ML_Arg(r,0);
+    if(!enabled||!renderer)return 0;
+    const char *blocked=NULL;
+    if(!*(bool*)(renderer+0x13))blocked="renderer inactive";
+    else if(!count_labels)blocked="no captures";
+    else if(names_menu_open())blocked="menu";
+    void *font=blocked?NULL:get_font();
+    if(!font){
+        trace_name_draw(trace,count_labels,0,blocked?blocked:"no font");
+        return 0;
+    }
+    unsigned drawn=0;
     for(unsigned label_index=0;label_index<count_labels;++label_index){
     const char*captured_name=captures[label_index].name;const float*captured_screen=captures[label_index].screen;
     FontVertex vertices[52*4];uint16_t indices[52*6];
@@ -201,7 +238,9 @@ static int draw_label(DK2ML_Regs*r,void*u){
         model[7]=y-gap-top*scale+offsets[pass][1];
         print_text(model,(void*)(renderer+renderer_camera+camera_projection),(void*)(renderer+renderer_camera+camera_view),font,pass==4?0xffcce3f0:0xff080808,captured_name);
     }
+    ++drawn;
     }
+    trace_name_draw(trace,count_labels,drawn,"draw");
     return 0;
 }
 
