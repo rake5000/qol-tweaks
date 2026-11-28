@@ -22,7 +22,11 @@ static void*(*hovered_human)(void);
 static int(*build_letters)(const char*,int,void*,FontVertex*,uint16_t*,uint16_t);
 static void(*print_text)(const float*,const float*,const float*,void*,uint32_t,const char*);
 static void*(*map_to_screen)(void*,float*,const float*);
-typedef struct {uintptr_t human;char name[52];float screen[2];} CapturedLabel;
+typedef struct {
+    uintptr_t human;
+    char name[52];
+    union {float screen[2];float world[3];} position;
+} CapturedLabel;
 static CapturedLabel captures[64];
 static unsigned capture_count;
 typedef struct {
@@ -34,7 +38,7 @@ static void trace_name_draw(NameTrace trace,unsigned captured,unsigned drawn,con
     static ULONGLONG last_log;
     static unsigned last_captured=~0u,last_drawn=~0u,log_count;
     static const char *last_reason;
-    if(!names_113||log_count>=80)return;
+    if(!names_113||log_count>=300)return;
     if(captured==last_captured&&drawn==last_drawn&&reason==last_reason)return;
     ULONGLONG now=GetTickCount64();
     if(now-last_log<500)return;
@@ -92,7 +96,7 @@ static bool wants_name(bool selected,bool hovered){return selected||always_names
 static bool project_trooper(uintptr_t client,const float point[3],float *x,float *y){
     if(names_113){
         // The named 1.13 screen conversion returns GUI coordinates. Project
-        // into the camera viewport directly for the renderer's label pass.
+        // into the viewport at draw time using the client's world camera.
         const float *view=(const float*)(client+client_camera+camera_view);
         const float *projection=(const float*)(client+client_camera+camera_projection);
         float eye[4],clip[4];
@@ -134,11 +138,12 @@ static void after_status(DK2ML_Regs*r,void*u){
     if(!length||length==52)return;
     float point[3];memcpy(point,(void*)(human+0x6c),sizeof(point));
     for(int k=0;k<3;k++)if(!isfinite(point[k]))return;
-    float x,y;if(!project_trooper(client,point,&x,&y))return;
-    if(names_113)++name_trace.projected;
+    float x=0,y=0;
+    if(!names_113&&!project_trooper(client,point,&x,&y))return;
     CapturedLabel*label=&captures[capture_count++];label->human=human;
     memcpy(label->name,name,(size_t)length);label->name[length]=0;
-    label->screen[0]=x;label->screen[1]=y;
+    if(names_113)memcpy(label->position.world,point,sizeof point);
+    else {label->position.screen[0]=x;label->position.screen[1]=y;}
 }
 #ifdef R5K_QOL_UI
 extern int qol_speed_hud_value(void);
@@ -182,8 +187,8 @@ static void after_draw_labels(DK2ML_Regs *regs,void *user){
 }
 #endif
 
-static bool names_menu_open(void){
-    if(!names_113)return api->IsGameMenuOpen()!=0;
+static const char *names_menu_blocker(void){
+    if(!names_113)return api->IsGameMenuOpen()?"menu":NULL;
     // Only pause menus suppress names in 1.13. Waypoint UI can be
     // active during path hover, when names must remain visible.
     static const char *const panels[]={
@@ -192,9 +197,9 @@ static bool names_menu_open(void){
     };
     for(unsigned i=0;i<sizeof panels/sizeof panels[0];i++){
         void *panel=api->GuiFind(NULL,panels[i]);
-        if(panel&&api->GuiIsShown(panel))return true;
+        if(panel&&api->GuiIsShown(panel))return panels[i];
     }
-    return false;
+    return NULL;
 }
 
 static int draw_label(DK2ML_Regs*r,void*u){
@@ -211,7 +216,12 @@ static int draw_label(DK2ML_Regs*r,void*u){
     const char *blocked=NULL;
     if(!*(bool*)(renderer+0x13))blocked="renderer inactive";
     else if(!count_labels)blocked="no captures";
-    else if(names_menu_open())blocked="menu";
+    else blocked=names_menu_blocker();
+    uintptr_t client=0;
+    if(!blocked&&names_113){
+        client=pointer(image+0x1038c40);
+        if(!client)blocked="no world camera";
+    }
     void *font=blocked?NULL:get_font();
     if(!font){
         trace_name_draw(trace,count_labels,0,blocked?blocked:"no font");
@@ -219,7 +229,16 @@ static int draw_label(DK2ML_Regs*r,void*u){
     }
     unsigned drawn=0;
     for(unsigned label_index=0;label_index<count_labels;++label_index){
-    const char*captured_name=captures[label_index].name;const float*captured_screen=captures[label_index].screen;
+    const CapturedLabel *label=&captures[label_index];
+    const char *captured_name=label->name;
+    float screen_x,screen_y;
+    if(names_113){
+        if(!project_trooper(client,label->position.world,&screen_x,&screen_y))continue;
+        ++trace.projected;
+    }else{
+        screen_x=label->position.screen[0];
+        screen_y=label->position.screen[1];
+    }
     FontVertex vertices[52*4];uint16_t indices[52*6];
     int length=(int)strlen(captured_name);
     int count=build_letters(captured_name,length,font,vertices,indices,0);
@@ -228,8 +247,8 @@ static int draw_label(DK2ML_Regs*r,void*u){
     for(int j=0;j<count*4;j++){minx=fminf(minx,vertices[j].p[0]);maxx=fmaxf(maxx,vertices[j].p[0]);top=fmaxf(top,vertices[j].p[1]);}
     float font_height=(float)*(int*)((uintptr_t)font+0x30);if(font_height<=0)continue;
     const float*bounds=(void*)(renderer+renderer_camera+camera_left);
-    float x=bounds[0]+captured_screen[0]*(bounds[1]-bounds[0]);
-    float y=bounds[2]+captured_screen[1]*(bounds[3]-bounds[2]);
+    float x=bounds[0]+screen_x*(bounds[1]-bounds[0]);
+    float y=bounds[2]+screen_y*(bounds[3]-bounds[2]);
     float scale=size/font_height;
     static const float offsets[5][2]={{-1,0},{1,0},{0,-1},{0,1},{0,0}};
     for(int pass=0;pass<5;pass++){
