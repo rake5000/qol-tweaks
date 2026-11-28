@@ -29,6 +29,11 @@ typedef struct {
 } CapturedLabel;
 static CapturedLabel captures[64];
 static unsigned capture_count;
+typedef struct {float x,y;} NameVec2;
+static uintptr_t imgui_context_slot;
+static void *(*viewport_draw_list)(void*,unsigned,const char*);
+static void *(*measure_overlay_text)(void*,NameVec2*,float,float,float,const char*,const char*,const char**);
+static void (*render_overlay_text)(void*,void*,float,NameVec2,unsigned,const float*,const char*,const char*,float,bool);
 static struct {
     unsigned status, valid, eligible, wanted, captured;
     unsigned draw, empty, inactive, client_missing, font_missing, projection_rejected, submitted;
@@ -114,6 +119,43 @@ static bool project_trooper(uintptr_t client,const float point[3],float *x,float
         *y=(screen[1]-viewport[1])/(float)viewport[3];
     }
     return isfinite(*x)&&isfinite(*y)&&*x>=0&&*x<=1&&*y>=0&&*y<=1;
+}
+
+static void draw_name_overlay(const DK2ML_Event *event,void *user){
+    unsigned count=enabled?capture_count:0;
+    capture_count=0;
+    ++hover_trace.draw;
+    if(!count){++hover_trace.empty;goto sample;}
+    uintptr_t client=pointer(image+0x1038c40),context=pointer(imgui_context_slot);
+    if(!client||!context){++hover_trace.client_missing;goto sample;}
+    uintptr_t font=pointer(context+15248),viewports=pointer(context+16432);
+    uintptr_t viewport=viewports?pointer(viewports):0;
+    if(!font||!viewport){++hover_trace.font_missing;goto sample;}
+    const float *area=(const float*)(viewport+4);
+    if(!isfinite(area[2])||!isfinite(area[3])||area[2]<=0||area[3]<=0)goto sample;
+    float clip[]={area[0],area[1],area[0]+area[2],area[1]+area[3]};
+    void *draw=viewport_draw_list((void*)viewport,1,"##Foreground");
+    if(!draw)goto sample;
+    for(unsigned i=0;i<count;i++){
+        const CapturedLabel *label=&captures[i];
+        float x,y;
+        if(!project_trooper(client,label->position.world,&x,&y)){
+            ++hover_trace.projection_rejected;
+            continue;
+        }
+        NameVec2 extent={0};
+        measure_overlay_text((void*)font,&extent,size,INFINITY,0,label->name,NULL,NULL);
+        NameVec2 pos={roundf(area[0]+x*area[2]-extent.x*.5f),roundf(area[1]+(1-y)*area[3]+gap)};
+        static const int offsets[][2]={{-1,0},{1,0},{0,-1},{0,1},{0,0}};
+        for(unsigned pass=0;pass<5;pass++){
+            NameVec2 at={pos.x+offsets[pass][0],pos.y+offsets[pass][1]};
+            render_overlay_text((void*)font,draw,size,at,pass==4?0xffcce3f0:0xff080808,
+                clip,label->name,NULL,0,false);
+        }
+        ++hover_trace.submitted;
+    }
+sample:
+    trace_hover_frame(event,user);
 }
 static int before_status(DK2ML_Regs*r,void*u){(void)u;r->scratch[0]=DK2ML_Arg(r,0);r->scratch[1]=DK2ML_Arg(r,5);return 0;}
 static void after_status(DK2ML_Regs*r,void*u){
@@ -243,8 +285,6 @@ static int draw_label(DK2ML_Regs *regs,void *user){
 }
 
 static void finish_draw_labels(DK2ML_Regs *regs,void *user){
-    // Draw over the native hover UI, which can cover the earlier label pass.
-    if(names_113)draw_names(regs->scratch[0]);
 #ifdef R5K_QOL_UI
     after_draw_labels(regs,user);
 #else
@@ -293,7 +333,17 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API*loader,const DK2ML_PluginInfo*
     void*target;if(!resolve(&target,"BatchLOSBlockerAndCoverAndROE",names_113?0x169430:0x1699c0))return 1;
     if(api->CreateSafeHook(target,before_status,after_status,NULL)!=DK2ML_OK||api->EnableHook(target)!=DK2ML_OK)return 1;
     void*gui;if(!resolve(&gui,"GameRenderer::RenderGUIItems",names_113?0x1560e0:0x156b70)||api->CreateSafeHook(gui,draw_label,finish_draw_labels,NULL)!=DK2ML_OK||api->EnableHook(gui)!=DK2ML_OK)return 1;
-    if(names_113&&api->Subscribe(DK2ML_EVENT_FRAME,trace_hover_frame,NULL)!=DK2ML_OK)return 1;
+    if(names_113){
+        imgui_context_slot=(uintptr_t)api->ResolveSymbol("GImGui");
+        if(!imgui_context_slot||
+            api->GetFieldOffset("ImGuiContext","Font")!=15248||
+            api->GetFieldOffset("ImGuiContext","Viewports")!=16424||
+            api->GetFieldOffset("ImGuiViewport","Pos")!=4||api->GetFieldOffset("ImGuiViewport","Size")!=12||
+            !resolve((void**)&viewport_draw_list,"GetViewportDrawList",0x2e3030)||
+            !resolve((void**)&measure_overlay_text,"ImFont::CalcTextSizeA",0x305890)||
+            !resolve((void**)&render_overlay_text,"ImFont::RenderText",0x305cb0)||
+            api->Subscribe(DK2ML_EVENT_FRAME,draw_name_overlay,NULL)!=DK2ML_OK)return 1;
+    }
     api->Log("Ready 1.2.0: selected/body-or-path-hover/all friendly trooper names, native camera-projected labels. Author Rake5000.");return 0;
 }
 
