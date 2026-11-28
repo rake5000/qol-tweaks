@@ -156,6 +156,21 @@ static void after_draw_labels(DK2ML_Regs *regs,void *user){
 }
 #endif
 
+static bool names_menu_open(void){
+    if(!names_113)return api->IsGameMenuOpen()!=0;
+    // 1.13 can capture GUI input while hovering a path or trooper.
+    // Hide labels when the actual pause menu or waypoint wheel is visible.
+    static const char *const panels[]={
+        "Menu_Ingame","Menu_Ingame_Campaign","Menu_Ingame_Replay",
+        "Menu_Ingame_OldReplay","#waypoint_menu"
+    };
+    for(unsigned i=0;i<sizeof panels/sizeof panels[0];i++){
+        void *panel=api->GuiFind(NULL,panels[i]);
+        if(panel&&api->GuiIsShown(panel))return true;
+    }
+    return false;
+}
+
 static int draw_label(DK2ML_Regs*r,void*u){
     (void)u;
     unsigned count_labels=enabled?capture_count:0;
@@ -163,7 +178,7 @@ static int draw_label(DK2ML_Regs*r,void*u){
 #ifdef R5K_QOL_UI
     r->scratch[0]=DK2ML_Arg(r,0);
 #endif
-    if(!count_labels||api->IsGameMenuOpen())return 0;
+    if(!count_labels||names_menu_open())return 0;
     uintptr_t renderer=DK2ML_Arg(r,0);if(!renderer||!*(bool*)(renderer+0x13))return 0;
     void*font=get_font();if(!font)return 0;
     for(unsigned label_index=0;label_index<count_labels;++label_index){
