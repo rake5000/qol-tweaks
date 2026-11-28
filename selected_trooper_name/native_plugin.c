@@ -186,27 +186,20 @@ static void after_draw_labels(DK2ML_Regs *regs,void *user){
 }
 #endif
 
-static int draw_label(DK2ML_Regs*r,void*u){
-    (void)u;
+static void draw_names(uintptr_t renderer){
     unsigned count_labels=enabled?capture_count:0;
     capture_count=0;
-#ifdef R5K_QOL_UI
-    r->scratch[0]=DK2ML_Arg(r,0);
-#endif
-    uintptr_t renderer=DK2ML_Arg(r,0);
     if(names_113)++hover_trace.draw;
-    if(!count_labels){if(names_113)++hover_trace.empty;return 0;}
-    if(!renderer||!*(bool*)(renderer+0x13)){if(names_113)++hover_trace.inactive;return 0;}
-    // 1.13 draws the mission menu over this pass. Its reported visibility
-    // can suppress every name even when the world remains visible.
-    if(!names_113&&api->IsGameMenuOpen())return 0;
+    if(!count_labels){if(names_113)++hover_trace.empty;return;}
+    if(!renderer||!*(bool*)(renderer+0x13)){if(names_113)++hover_trace.inactive;return;}
+    if(!names_113&&api->IsGameMenuOpen())return;
     uintptr_t client=0;
     if(names_113){
         client=pointer(image+0x1038c40);
-        if(!client){++hover_trace.client_missing;return 0;}
+        if(!client){++hover_trace.client_missing;return;}
     }
     void *font=get_font();
-    if(!font){if(names_113)++hover_trace.font_missing;return 0;}
+    if(!font){if(names_113)++hover_trace.font_missing;return;}
     for(unsigned label_index=0;label_index<count_labels;++label_index){
     const CapturedLabel *label=&captures[label_index];
     const char *captured_name=label->name;
@@ -240,7 +233,23 @@ static int draw_label(DK2ML_Regs*r,void*u){
     }
     if(names_113)++hover_trace.submitted;
     }
-    return 0;
+}
+
+static int draw_label(DK2ML_Regs *regs,void *user){
+    (void)user;
+    regs->scratch[0]=DK2ML_Arg(regs,0);
+    if(!names_113)draw_names(regs->scratch[0]);
+    return DK2ML_CALL_ORIGINAL;
+}
+
+static void finish_draw_labels(DK2ML_Regs *regs,void *user){
+    // Draw over the native hover UI, which can cover the earlier label pass.
+    if(names_113)draw_names(regs->scratch[0]);
+#ifdef R5K_QOL_UI
+    after_draw_labels(regs,user);
+#else
+    (void)user;
+#endif
 }
 
 static bool resolve(void**out,const char*name,unsigned rva){*out=api->ResolveSymbol(name);if((uintptr_t)*out!=image+rva){api->Log("Unsupported game symbol: %s",name);return false;}return true;}
@@ -283,12 +292,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API*loader,const DK2ML_PluginInfo*
     if(api->PublishInterface("Rake5000.Settings.SelectedTrooperName",R5K_SETTINGS_API_VERSION,&settings)!=DK2ML_OK)return 1;
     void*target;if(!resolve(&target,"BatchLOSBlockerAndCoverAndROE",names_113?0x169430:0x1699c0))return 1;
     if(api->CreateSafeHook(target,before_status,after_status,NULL)!=DK2ML_OK||api->EnableHook(target)!=DK2ML_OK)return 1;
-    DK2ML_PostFn after_gui=NULL;
-#ifdef R5K_QOL_UI
-    // Draw the speed text after the game paints the panel behind it.
-    after_gui=after_draw_labels;
-#endif
-    void*gui;if(!resolve(&gui,"GameRenderer::RenderGUIItems",names_113?0x1560e0:0x156b70)||api->CreateSafeHook(gui,draw_label,after_gui,NULL)!=DK2ML_OK||api->EnableHook(gui)!=DK2ML_OK)return 1;
+    void*gui;if(!resolve(&gui,"GameRenderer::RenderGUIItems",names_113?0x1560e0:0x156b70)||api->CreateSafeHook(gui,draw_label,finish_draw_labels,NULL)!=DK2ML_OK||api->EnableHook(gui)!=DK2ML_OK)return 1;
     if(names_113&&api->Subscribe(DK2ML_EVENT_FRAME,trace_hover_frame,NULL)!=DK2ML_OK)return 1;
     api->Log("Ready 1.2.0: selected/body-or-path-hover/all friendly trooper names, native camera-projected labels. Author Rake5000.");return 0;
 }
