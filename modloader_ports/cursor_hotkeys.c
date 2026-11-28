@@ -170,7 +170,7 @@ static unsigned binding_for(unsigned key) {
 // never the mission-wide reset itself. Resolve IDs again during normal input update.
 static bool try_toggle_order(unsigned binding);
 #ifdef R5K_QOL_UI
-static bool try_toggle_go_code_113(unsigned binding);
+static bool try_toggle_order_113(unsigned binding);
 #endif
 static void dispatch_grenade(unsigned binding);
 static void dispatch_door(unsigned binding);
@@ -198,7 +198,7 @@ static LRESULT close_waypoint_wheel(WNDPROC forward,HWND window) {
 static LRESULT send_toggle_key(WNDPROC forward,HWND window,UINT message,WPARAM key,LPARAM data,unsigned binding) {
 #ifdef R5K_QOL_UI
     if(basic_113){
-        if(message==WM_KEYDOWN&&try_toggle_go_code_113(binding))return close_waypoint_wheel(forward,window);
+        if(message==WM_KEYDOWN&&try_toggle_order_113(binding))return close_waypoint_wheel(forward,window);
         return CallWindowProcW(forward,window,message,key,data);
     }
 #endif
@@ -351,9 +351,10 @@ static int preserve_plan_save(DK2ML_Regs *regs,void *user) {
 #ifdef R5K_QOL_UI
 static uintptr_t global_client_113,waypoint_type_113;
 static bool (*waypoint_event_113)(void*,unsigned,const void*);
+static void (*change_waypoint_action_113)(void*,unsigned,unsigned,uint32_t);
 enum { waypoint_pool_limit_113=12000 };
-static unsigned go_code_unchecked_113;
-static int wheel_id_offset_113,entity_pool_offset_113,go_code_offset_113,owner_offset_113;
+static unsigned go_code_unchecked_113,delete_waypoint_113;
+static int wheel_id_offset_113,entity_pool_offset_113,action_offset_113,go_code_offset_113,owner_offset_113;
 
 static bool resolve_go_code_toggle_113(void) {
     global_client_113=(uintptr_t)api->ResolveSymbol("g_pGameClient");
@@ -373,14 +374,27 @@ static bool resolve_go_code_toggle_113(void) {
         api->GetEnumValue("GUI::Events::eEventType","GUI_GAME_WAYPOINT_GOCODE_UNCHECKED",&unchecked)!=DK2ML_OK||
         unchecked!=86)return false;
     wheel_id_offset_113=user_data+id;
+    action_offset_113=action;
     go_code_offset_113=action+go_code;
     owner_offset_113=action+owner;
     go_code_unchecked_113=(unsigned)unchecked;
     return true;
 }
 
-static bool try_toggle_go_code_113(unsigned binding) {
-    if(binding<'1'||binding>'4'||!go_code_unchecked_113)return false;
+static bool resolve_action_toggle_113(void) {
+    int64_t remove=0,ignore=-1,none=-1;
+    change_waypoint_action_113=(void*)api->ResolveSymbol("ActionWP_Client::OnChangeAction");
+    if(!change_waypoint_action_113||
+        api->GetEnumValue("GUI::Events::eEventType","GUI_GAME_WAYPOINT_DELETE",&remove)!=DK2ML_OK||remove!=82||
+        api->GetEnumValue("eActionType","ACTION_IGNORE",&ignore)!=DK2ML_OK||ignore!=0||
+        api->GetEnumValue("Inventory::eType","NONE",&none)!=DK2ML_OK||none!=0)return false;
+    delete_waypoint_113=(unsigned)remove;
+    return true;
+}
+
+static bool try_toggle_order_113(unsigned binding) {
+    unsigned requested_code=waypoint_order_code(binding),requested_action=waypoint_order_action(binding);
+    if(!go_code_unchecked_113||(!requested_code&&(!requested_action||!delete_waypoint_113)))return false;
     uintptr_t gui=0,wheel=0,client=0,waypoint=0,vtable=0,type=0,owner=0;
     uint32_t id=0,go_code=0,owner_id=0;
     if(!read_at(global_gui,&gui,sizeof gui)||!gui||
@@ -390,11 +404,18 @@ static bool try_toggle_go_code_113(unsigned binding) {
         !read_at(client+entity_pool_offset_113+id*sizeof waypoint,&waypoint,sizeof waypoint)||!waypoint||
         !read_at(waypoint,&vtable,sizeof vtable)||!vtable||
         !read_at(vtable+sizeof type,&type,sizeof type)||type!=waypoint_type_113||
-        !read_at(waypoint+go_code_offset_113,&go_code,sizeof go_code)||go_code!=binding-'1'+1||
+        !read_at(waypoint+go_code_offset_113,&go_code,sizeof go_code)||
         !read_at(waypoint+owner_offset_113,&owner_id,sizeof owner_id)||!owner_id||owner_id>=waypoint_pool_limit_113||
         !read_at(client+entity_pool_offset_113+owner_id*sizeof owner,&owner,sizeof owner)||!owner)return false;
     const uint64_t parameters[3]={0};
-    return waypoint_event_113((void*)gui,go_code_unchecked_113,parameters);
+    if(requested_code)
+        return go_code==requested_code&&waypoint_event_113((void*)gui,go_code_unchecked_113,parameters);
+    uint32_t action=0;
+    if(!read_at(waypoint+action_offset_113,&action,sizeof action)||action!=requested_action)return false;
+    if(!go_code)return waypoint_event_113((void*)gui,delete_waypoint_113,parameters);
+    // Use the native action update to remove only the order and retain its go-code.
+    change_waypoint_action_113((void*)waypoint,0,0,0);
+    return true;
 }
 #endif
 
@@ -1005,8 +1026,10 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
             api->Log("Cursor Hotkeys 1.13: waypoint menu or input layout unavailable.");
             return 1;
         }
-        if(resolve_go_code_toggle_113())
-            api->Log("Cursor Hotkeys 1.13: native go-code removal ready.");
+        if(resolve_go_code_toggle_113()){
+            if(resolve_action_toggle_113())api->Log("Cursor Hotkeys 1.13: native waypoint toggles ready.");
+            else api->Log("Cursor Hotkeys 1.13: go-code and Wait for Clear toggles ready; action removal unavailable.");
+        }
         else api->Log("Cursor Hotkeys 1.13: go-code removal unavailable; assignment still active.");
         if(configure(loader,"Enable additional hotkeys","Waypoint-wheel movement, reload, go-code and path shortcuts.",true)||
             !install_window_bridge()||
