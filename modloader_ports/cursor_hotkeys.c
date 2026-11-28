@@ -69,6 +69,9 @@ typedef struct { bool wheel_open, playing, other_panel; int captures; } state;
 #ifdef R5K_QOL_UI
 static bool basic_113;
 static uintptr_t global_gui,global_manager;
+static uintptr_t global_client_113,waypoint_type_113,human_type_113;
+enum { waypoint_pool_limit_113=12000 };
+static int wheel_id_offset_113,entity_pool_offset_113,action_offset_113,go_code_offset_113,owner_offset_113;
 static int wheel_offset,hidden_offset,list_offset,count_offset;
 static int64_t running_state;
 
@@ -236,11 +239,15 @@ static bool friendly_human(uintptr_t human,uintptr_t client,uint32_t *id) {
 }
 static bool cursor_hits_body(uintptr_t client,uintptr_t human) {
     POINT mouse;RECT area;float eye[3],view[16],projection[16],low[3],high[3];
-    uintptr_t camera=client+0x107274;
+    unsigned camera_offset=0x107274,projection_offset=176;
+#ifdef R5K_QOL_UI
+    if(basic_113){camera_offset=0x107294;projection_offset=180;}
+#endif
+    uintptr_t camera=client+camera_offset;
     if(!hooked_window||!GetCursorPos(&mouse)||!ScreenToClient(hooked_window,&mouse)||
         !GetClientRect(hooked_window,&area)||!PtInRect(&area,mouse)||area.right<1||area.bottom<1||
         !read_at(camera+24,eye,sizeof(eye))||!read_at(camera+48,view,sizeof(view))||
-        !read_at(camera+176,projection,sizeof(projection))||
+        !read_at(camera+projection_offset,projection,sizeof(projection))||
         !read_at(human+208,low,sizeof(low))||!read_at(human+220,high,sizeof(high))||
         !isfinite(projection[0])||!isfinite(projection[5])||projection[0]<=0||projection[5]<=0||
         fabsf(projection[15])>.001f)return false;
@@ -251,8 +258,16 @@ static bool cursor_hits_body(uintptr_t client,uintptr_t human) {
 }
 static uint32_t body_under_cursor(void) {
     uintptr_t input=0,client=0;uint32_t slot=0,id=0;
-    if(!read_at(image+0xfe8a68,&input,8)||!read_at(input+0xc,&slot,4)||slot>100000||
-        !read_at(image+0xff0ea8,&client,8)||!client)return 0;
+    uintptr_t client_slot=image+0xff0ea8,input_slot=image+0xfe8a68;
+#ifdef R5K_QOL_UI
+    if(basic_113){client_slot=global_client_113;input_slot=image+0x100e6e0;}
+#endif
+    if(!read_at(input_slot,&input,8)||!input||
+        !read_at(client_slot,&client,8)||!client)return 0;
+#ifdef R5K_QOL_UI
+    if(!basic_113)
+#endif
+    if(!read_at(input+0xc,&slot,4)||slot>100000)return 0;
     typedef uintptr_t (*hover_fn)(void);
     // Native GetHoveredHuman resolves both ActionWP and path proxies to their
     // owner. A pie marker may cover the body, so raw entity identity is NOT a
@@ -276,11 +291,32 @@ static bool queue_empty_plan(uintptr_t human) {
 }
 static bool clear_hovered_plan(uint32_t id,uintptr_t client) {
     uintptr_t human=0;uint32_t checked_id=0;
-    if(id>100000||!read_at(client+0x2e8+id*8,&human,8)||
+    unsigned limit=100001,pool_offset=0x2e8;
+#ifdef R5K_QOL_UI
+    if(basic_113){limit=waypoint_pool_limit_113;pool_offset=entity_pool_offset_113;}
+#endif
+    if(!id||id>=limit||!read_at(client+pool_offset+id*8,&human,8)||
         !friendly_human(human,client,&checked_id)||checked_id!=id)return false;
     // Gather first: removing visuals can change the intrusive action list.
     uintptr_t head=0,node=0,wp=0,waypoints[4096];unsigned count=0,scanned=0;
-    bool snapshot_ok=read_at(image+0x7cb540,&head,8);
+    bool snapshot_ok;
+#ifdef R5K_QOL_UI
+    if(basic_113){
+        uintptr_t entities[waypoint_pool_limit_113];
+        snapshot_ok=read_at(client+pool_offset,entities,sizeof entities);
+        if(snapshot_ok)for(unsigned i=1;i<limit;i++){
+            uintptr_t table=0,type=0;
+            uint32_t owner_id=0;
+            if(!entities[i]||!read_at(entities[i],&table,8)||!read_at(table+8,&type,8)||
+                type!=waypoint_type_113||!read_at(entities[i]+owner_offset_113,&owner_id,4)||owner_id!=id)continue;
+            if(count>=sizeof waypoints/sizeof waypoints[0])return false;
+            waypoints[count++]=entities[i];
+        }
+        if(!snapshot_ok)return false;
+    }else
+#endif
+    {
+    snapshot_ok=read_at(image+0x7cb540,&head,8);
     if(snapshot_ok&&head)snapshot_ok=read_at(head+0x18,&wp,8);
     while(snapshot_ok&&wp) {
         uint32_t owner_id=0;
@@ -289,6 +325,7 @@ static bool clear_hovered_plan(uint32_t id,uintptr_t client) {
         if(!read_at(wp+0x1d8,&node,8)){snapshot_ok=false;break;}
         if(!node||node==head)break;
         if(!read_at(node+0x18,&wp,8)){snapshot_ok=false;break;}
+    }
     }
     typedef void (*remove_fn)(void*);
     typedef void* (*event_fn)(void*,int,int);
@@ -319,6 +356,21 @@ static bool clear_every_plan(uintptr_t client,uintptr_t map) {
         api->Log("Alt+C: no saved planning-stage plan available; orders left unchanged.");return false;
     }
     uintptr_t head=0,node=0,human=0;uint32_t ids[1024];unsigned count=0,scanned=0;
+#ifdef R5K_QOL_UI
+    if(basic_113){
+        uintptr_t entities[waypoint_pool_limit_113];
+        if(!read_at(client+entity_pool_offset_113,entities,sizeof entities))return false;
+        for(unsigned i=1;i<waypoint_pool_limit_113;i++){
+            uintptr_t table=0,type=0;
+            uint32_t id=0;
+            if(!entities[i]||!read_at(entities[i],&table,8)||!read_at(table+8,&type,8)||
+                type!=human_type_113||!friendly_human(entities[i],client,&id)||id!=i)continue;
+            if(count>=sizeof ids/sizeof ids[0])return false;
+            ids[count++]=id;
+        }
+    }else
+#endif
+    {
     if(!read_at(image+0x7cb820,&head,8))return false;
     if(head&&!read_at(head+0x18,&human,8))return false;
     while(human) {
@@ -332,6 +384,7 @@ static bool clear_every_plan(uintptr_t client,uintptr_t map) {
         if(!node||node==head)break;
         if(!read_at(node+0x18,&human,8))return false;
     }
+    }
     protected_plan_client=client;protected_plan_map=map;
     bool changed=false;
     for(unsigned i=0;i<count;++i)changed|=clear_hovered_plan(ids[i],client);
@@ -341,24 +394,31 @@ static bool clear_every_plan(uintptr_t client,uintptr_t map) {
 static int preserve_plan_save(DK2ML_Regs *regs,void *user) {
     (void)user;
     uintptr_t client=0,map=0;
-    if(!enabled||!protected_plan_client||!regs->stack||!read_at(image+0xff0ea8,&client,8)||
+    uintptr_t client_slot=image+0xff0ea8;
+#ifdef R5K_QOL_UI
+    if(basic_113)client_slot=global_client_113;
+#endif
+    if(!enabled||!protected_plan_client||!regs->stack||!read_at(client_slot,&client,8)||
         !read_at(client+0x28,&map,8))return DK2ML_CALL_ORIGINAL;
     if(client!=protected_plan_client||map!=protected_plan_map) {
         protected_plan_client=protected_plan_map=0;return DK2ML_CALL_ORIGINAL;
     }
-    if(preserve_automatic_plan((uintptr_t)regs->stack[0]-image,(uintptr_t)DK2ML_Arg(regs,3),
+    uintptr_t caller=(uintptr_t)regs->stack[0]-image;
+#ifdef R5K_QOL_UI
+    if(basic_113){
+        if(caller==0x18563f&&(uintptr_t)DK2ML_Arg(regs,3)==client+0x7e280)return DK2ML_SKIP_ORIGINAL;
+    }else
+#endif
+    if(preserve_automatic_plan(caller,(uintptr_t)DK2ML_Arg(regs,3),
         client,map,protected_plan_client,protected_plan_map))return DK2ML_SKIP_ORIGINAL;
     // Explicit saves to this plan are user intent; unrelated save buffers are untouched.
     if((uintptr_t)DK2ML_Arg(regs,3)==client+0x7e280)protected_plan_client=protected_plan_map=0;
     return DK2ML_CALL_ORIGINAL;
 }
 #ifdef R5K_QOL_UI
-static uintptr_t global_client_113,waypoint_type_113;
 static bool (*waypoint_event_113)(void*,unsigned,const void*);
 static void (*change_waypoint_action_113)(void*,unsigned,unsigned,uint32_t);
-enum { waypoint_pool_limit_113=12000 };
 static unsigned go_code_unchecked_113,delete_waypoint_113;
-static int wheel_id_offset_113,entity_pool_offset_113,action_offset_113,go_code_offset_113,owner_offset_113;
 
 static bool resolve_go_code_toggle_113(void) {
     global_client_113=(uintptr_t)api->ResolveSymbol("g_pGameClient");
@@ -752,6 +812,10 @@ static void input_post(DK2ML_Regs *regs, void *user) {
         if(clear_all||clear_id)position_cancel_user_clear(clear_id,clear_all);
         if(clear_all){door_request.pending=false;if(clear_every_plan(client,map)&&play_gui_click)play_gui_click();}
         else if(clear_id){if(door_request.owner==clear_id)door_request.pending=false;if(clear_hovered_plan(clear_id,client)&&play_gui_click)play_gui_click();}
+    }else if(clear_all){
+        if(clear_every_plan(client,map)&&play_gui_click)play_gui_click();
+    }else if(clear_id){
+        if(clear_hovered_plan(clear_id,client)&&play_gui_click)play_gui_click();
     }
 
     if(atomic_exchange(&autoexecute_reapply,false))defaults_reset(&auto_defaults);
@@ -822,7 +886,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
         if (swallowed[wp]) return 0; // Ignore physical key repeat.
 #ifdef R5K_QOL_UI
         unsigned action=binding_for((unsigned)wp);
-        if(!basic_113&&action==QOL_CLEAR_ALL) {
+        if(action==QOL_CLEAR_ALL) {
 #else
         if(wp=='C'&&(GetKeyState(VK_MENU)&0x8000)&&
             !((GetKeyState(VK_SHIFT)|GetKeyState(VK_CONTROL))&0x8000)) {
@@ -858,7 +922,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
             }
         }
 #ifdef R5K_QOL_UI
-        if(!basic_113&&action=='C') {
+        if(action=='C') {
 #else
         if(wp=='C'&&!((GetKeyState(VK_SHIFT)|GetKeyState(VK_CONTROL)|GetKeyState(VK_MENU))&0x8000)) {
 #endif
@@ -1038,7 +1102,7 @@ static int window_pre(DK2ML_Regs *regs, void *user) {
         (HWND)(uintptr_t)DK2ML_Arg(regs, 0) != hooked_window) return DK2ML_CALL_ORIGINAL;
     current_message = (UINT)DK2ML_Arg(regs, 1);
 #ifdef R5K_QOL_UI
-    if(!basic_113)pie_input_message(current_message);
+    pie_input_message(current_message);
 #endif
     current_wp = (WPARAM)DK2ML_Arg(regs, 2);
     current_lp = (LPARAM)DK2ML_Arg(regs, 3);
@@ -1087,6 +1151,23 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
             api->GetFieldOffset("Human_Client","m_inventory")!=1072||
             api->GetTypeSize("Equipment_Client")!=88)return 1;
         wheel_clicked_event=(unsigned)clicked;
+        human_type_113=(uintptr_t)api->ResolveSymbol("Human_Client::GetType");
+        hovered_human_fn=(uintptr_t)api->ResolveSymbol("GameInput::GetHoveredHuman");
+        delete_path_fn=(uintptr_t)api->ResolveSymbol("Human_Client::DeletePathFromIndexOnward");
+        remove_visuals_fn=(uintptr_t)api->ResolveSymbol("ActionWP_Client::RemoveVisuals");
+        net_event_fn=(uintptr_t)api->ResolveSymbol("Entity_Common::Net_AddReliableEvent");
+        write_bits_fn=(uintptr_t)api->ResolveSymbol("BitPacker::WriteBits");
+        write_varuint_fn=(uintptr_t)api->ResolveSymbol("BitPacker::WriteVarUInt");
+        if(human_type_113!=image+0xaa050||hovered_human_fn!=image+0x135e60||
+            delete_path_fn!=image+0xb7830||remove_visuals_fn!=image+0x9c890||
+            net_event_fn!=image+0x1fe630||write_bits_fn!=image+0x227e00||write_varuint_fn!=image+0x228430||
+            api->GetFieldOffset("Human_Client","m_path")!=3472||
+            api->GetFieldOffset("GameClient","m_savedPlan")!=0x7e280||
+            api->GetFieldOffset("GameClient","m_savedPlanSize")!=0xfe280||
+            api->GetFieldOffset("GameClient","m_camera")!=0x107294||
+            api->GetFieldOffset("Camera","m_matProjection")!=180)return 1;
+        void *click=api->ResolveSymbol("PlayGUIClicked");
+        if(click)play_gui_click=(void (*)(void))click;
         // Anchor the internal autoexecution command to the verified Shift branch.
         static const unsigned char shift_branch[]={0xe9,0x1a,0x17,0,0};
         void *auto_toggle=(void*)(image+0x189ab0);
@@ -1099,9 +1180,12 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
             api->EnableHook(auto_toggle)!=DK2ML_OK||
             !hook_named("GameInput::CheckKeyboardEvents",0x12c9e0,NULL,input_post)||
             !hook_named("GameInput::Update",0x12f870,NULL,button_input_post)||
+            !hook_named("SavedPlan::Save",0x1d51c0,preserve_plan_save,NULL)||
+            !hook_named("SavedPlan::Load",0x1d60b0,NULL,saved_plan_loaded)||
             api->Subscribe(DK2ML_EVENT_MAP_LOADED,defaults_loaded,NULL)!=DK2ML_OK||
             !install_window_bridge()||
-            api->Subscribe(DK2ML_EVENT_FRAME,frame,NULL)!=DK2ML_OK)return 1;
+            api->Subscribe(DK2ML_EVENT_FRAME,frame,NULL)!=DK2ML_OK||
+            !configure_pie_right_drag())return 1;
         api->Log("Cursor Hotkeys 1.13: basic waypoint-wheel shortcuts ready.");
         return 0;
     }

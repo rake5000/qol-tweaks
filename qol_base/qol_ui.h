@@ -11,7 +11,7 @@ static inline int qol_ported_wheel_action(unsigned action) {
     return qol_basic_action(action)||action=='F'||action==256||action==259;
 }
 static inline int qol_ported_action(unsigned action) {
-    return qol_ported_wheel_action(action)||(action>=QOL_AUTO_A&&action<=QOL_AUTO_ALL)||
+    return qol_ported_wheel_action(action)||action==QOL_CLEAR_ALL||(action>=QOL_AUTO_A&&action<=QOL_AUTO_ALL)||
         (action>=QOL_SPEED_UP&&action<=QOL_SPEED_TOGGLE);
 }
 int qol_ui_prepare(const DK2ML_API *loader);

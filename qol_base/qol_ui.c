@@ -206,7 +206,7 @@ int qol_ui_register(void){
  }
  if(basic_113){
   DK2ML_Option status={0};status.structSize=sizeof status;status.type=DK2ML_OPTION_HEADER;
-  status.label="1.13 test build: Open & Center-Check and some Controls shortcuts are pending";
+  status.label="1.13 test build: Open & Center-Check and Open door only are pending";
   if(api->AddOption(&status)!=DK2ML_OK)return 1;
  }
  DK2ML_Option reset={0};reset.structSize=sizeof reset;reset.type=DK2ML_OPTION_BUTTON;
@@ -250,7 +250,7 @@ void qol_draw_settings(int page,void (*heading)(const char *)){
  if(page<0||page>=(int)COUNT(sections))return;
  if(basic_113){
   static const char *unavailable[]={
-   "Right-drag pie and full trooper-plan clearing await porting to 1.13.",
+   NULL,
    NULL,
    "Open & Center-Check and Open door only await porting to 1.13.",
    NULL,
