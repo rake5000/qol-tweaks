@@ -158,11 +158,11 @@ static void after_draw_labels(DK2ML_Regs *regs,void *user){
 
 static bool names_menu_open(void){
     if(!names_113)return api->IsGameMenuOpen()!=0;
-    // 1.13 can capture GUI input while hovering a path or trooper.
-    // Hide labels when the actual pause menu or waypoint wheel is visible.
+    // Only pause menus suppress names in 1.13. Waypoint UI can be
+    // active during path hover, when names must remain visible.
     static const char *const panels[]={
         "Menu_Ingame","Menu_Ingame_Campaign","Menu_Ingame_Replay",
-        "Menu_Ingame_OldReplay","#waypoint_menu"
+        "Menu_Ingame_OldReplay"
     };
     for(unsigned i=0;i<sizeof panels/sizeof panels[0];i++){
         void *panel=api->GuiFind(NULL,panels[i]);
