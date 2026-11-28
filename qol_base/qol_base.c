@@ -6,7 +6,7 @@
 #include "../enemy_autopause/sdk/include/dk2ml.h"
 #include "qol_ui.h"
 
-DK2ML_PLUGIN_MANIFEST(3,"QOL Tweaks","0.2.31-dev","Rake5000","",112);
+DK2ML_PLUGIN_MANIFEST(3,"QOL Tweaks","0.2.32-dev","Rake5000","",112);
 
 // Persistent per-feature API copies preserve the legacy configuration namespace.
 // Do not merge translation units: their private state intentionally stays isolated.
@@ -65,7 +65,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
         feature_api[i].AddOption=qol_collect_option;
     }
     for(unsigned i=0;i<4;i++){
-        if(basic_113&&(i==1||i==2))continue;
+        if(basic_113&&i==2)continue;
         if(initialize[i](&feature_api[i],info)){
             loader->Log("QOL Tweaks initialization failed in %ls; loader must deactivate this plugin's hooks.",legacy[i]);
             return 1;
@@ -74,7 +74,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
     if(!basic_113&&qol_speed_init(&feature_api[3],info))return 1;
     if(qol_ui_register())return 1;
     if(basic_113)
-        loader->Log("QOL Tweaks 1.13 ready: basic waypoint-wheel hotkeys and shared settings. Other QOL features await porting.");
+        loader->Log("QOL Tweaks 1.13 ready: basic waypoint-wheel hotkeys, normal-speed replays and shared settings.");
     else
         loader->Log("QOL Tweaks ready: hotkeys including breaching, native Speed Changer, normal-speed replays, names and shared settings.");
     return 0;

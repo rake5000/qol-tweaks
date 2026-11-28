@@ -14,6 +14,8 @@ DK2ML_PLUGIN_MANIFEST(3, "Normal Speed Replays", "1.0.1", "Rake5000", "", 112);
 static unsigned normalized;
 static bool previously_replaying;
 static const uint32_t mission_ending_state = 2;
+static bool replay_113;
+static uintptr_t interpolation_offset=0x107260;
 
 
 static void log_text(int level, const char *message) {
@@ -25,6 +27,7 @@ static bool read_at(uintptr_t address, void *out, SIZE_T count) {
         out, count, &actual) && actual == count;
 }
 static bool is_replay(void) {
+    if(replay_113)return api->IsReplaying()!=0;
     uintptr_t stream = 0;
     return read_at(image + 0x137cdb8, &stream, sizeof(stream)) && stream;
 }
@@ -40,7 +43,7 @@ static void advance_post(DK2ML_Regs *regs, void *user) {
     uint32_t phase, mission_state, t[4];
     if (!read_at(p + 0x7e208, &phase, 4) || phase != 8 ||
         !read_at(p + 0x290, &mission_state, 4) || mission_state == mission_ending_state ||
-        !read_at(p + 0x107260, t, sizeof(t))) return;
+        !read_at(p + interpolation_offset, t, sizeof(t))) return;
     // t = interpolation real-source, real-target, game-source, game-target.
     uint32_t game_source = t[2], game_target = t[3];
     // Replay packets are often consumed immediately, without lookahead. In
@@ -53,7 +56,7 @@ static void advance_post(DK2ML_Regs *regs, void *user) {
     uint32_t adjusted = replay_interval(t[0], t[1], game_source, game_target);
     if (adjusted == t[1]) return;
     SIZE_T actual = 0;
-    if (!WriteProcessMemory(GetCurrentProcess(), (void *)(p + 0x107264),
+    if (!WriteProcessMemory(GetCurrentProcess(), (void *)(p + interpolation_offset + sizeof(uint32_t)),
         &adjusted, sizeof(adjusted), &actual) || actual != sizeof(adjusted)) return;
     ++normalized;
     if (normalized <= 3) {
@@ -72,7 +75,7 @@ static int advance_pre(DK2ML_Regs *regs, void *user) {
     regs->scratch[0] = enabled && is_replay();
     regs->scratch[1] = DK2ML_Arg(regs, 0);
     regs->scratch[3] = regs->scratch[0] &&
-        read_at((uintptr_t)regs->scratch[1] + 0x107268, &previous, sizeof(previous));
+        read_at((uintptr_t)regs->scratch[1] + interpolation_offset + 2*sizeof(uint32_t), &previous, sizeof(previous));
     regs->scratch[2] = previous;
     return DK2ML_CALL_ORIGINAL;
 }
@@ -83,9 +86,22 @@ static void frame(const DK2ML_Event *event, void *user) {
     previously_replaying = replaying;
 }
 DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInfo *info) {
-    (void)info; image = (uintptr_t)loader->ResolveSymbol("GameClient::UpdateCamera") - 0x187f70;
-    if (configure(loader, "Play replays at normal speed", "Plays recorded action at 100% speed and keeps the mission-ending slowdown.", false) ||
-        !hook_named("GameClient::AdvanceSnapshot", 0x183990, advance_pre, advance_post) ||
+    (void)info;
+    replay_113=loader->GetGameVersion()==113;
+    if(replay_113){
+        // Verified against the 1.13 snapshot function and the symbol pack.
+        if(!loader->IsReplaying||
+            loader->GetFieldOffset("GameClient","m_state")!=0x7e208||
+            loader->GetFieldOffset("GameCommon","m_gameState")!=0x290||
+            loader->GetFieldOffset("GameClient","m_interpTimeSource")!=0x107280||
+            loader->GetFieldOffset("GameClient","m_interpTimeTarget")!=0x107284||
+            loader->GetFieldOffset("GameClient","m_interpGameTimeSource")!=0x107288||
+            loader->GetFieldOffset("GameClient","m_interpGameTimeTarget")!=0x10728c)return 1;
+        interpolation_offset=0x107280;
+        image=(uintptr_t)loader->ResolveSymbol("GameClient::UpdateCamera")-0x187c20;
+    }else image=(uintptr_t)loader->ResolveSymbol("GameClient::UpdateCamera")-0x187f70;
+    if (configure(loader, "Play replays at normal speed", "Plays recorded action at 100% speed and keeps the mission-ending slowdown.", replay_113) ||
+        !hook_named("GameClient::AdvanceSnapshot", replay_113?0x183510:0x183990, advance_pre, advance_post) ||
         api->Subscribe(DK2ML_EVENT_FRAME, frame, NULL) != DK2ML_OK) return 1;
     api->Log("Ready: normal-speed replay action and original mission-ending slowdown.");
     return 0;
