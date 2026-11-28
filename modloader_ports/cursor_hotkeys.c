@@ -201,13 +201,13 @@ static LRESULT close_waypoint_wheel(WNDPROC forward,HWND window) {
 static LRESULT send_toggle_key(WNDPROC forward,HWND window,UINT message,WPARAM key,LPARAM data,unsigned binding) {
     bool grenade=binding==BIND_FLASH||binding==BIND_FRAG;
     bool suppression=binding==BIND_SUPPRESSION;
+    bool door=binding==BIND_DOOR||binding==BIND_DOOR_ONLY;
 #ifdef R5K_QOL_UI
-    if(basic_113&&!grenade&&!suppression){
+    if(basic_113&&!grenade&&!suppression&&!door){
         if(message==WM_KEYDOWN&&try_toggle_order_113(binding))return close_waypoint_wheel(forward,window);
         return CallWindowProcW(forward,window,message,key,data);
     }
 #endif
-    bool door=binding==BIND_DOOR||binding==BIND_DOOR_ONLY;
     if(message==WM_KEYDOWN&&(grenade||door||suppression)) {
         // Do not mutate temporary native waypoints between input updates.
         // GameInput::Update refreshes them before GUIManager::UpdateInput.
@@ -807,9 +807,9 @@ static void input_post(DK2ML_Regs *regs, void *user) {
     if (!game_foreground(&window) || window != hooked_window ||
         s.wheel_open || s.other_panel) {atomic_store(&clear_body_id,0);return;}
 
+    if(legacy)update_door_sequence(client,map);
+    if(clear_all||clear_id)position_cancel_user_clear(clear_id,clear_all);
     if(legacy){
-        update_door_sequence(client,map);
-        if(clear_all||clear_id)position_cancel_user_clear(clear_id,clear_all);
         if(clear_all){door_request.pending=false;if(clear_every_plan(client,map)&&play_gui_click)play_gui_click();}
         else if(clear_id){if(door_request.owner==clear_id)door_request.pending=false;if(clear_hovered_plan(clear_id,client)&&play_gui_click)play_gui_click();}
     }else if(clear_all){
@@ -868,7 +868,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
         if (forward && game_foreground(&active) && active == window &&
             get_state(&s) && s.playing && s.wheel_open
 #ifdef R5K_QOL_UI
-            && (!basic_113 || (!s.other_panel && qol_ported_wheel_action((unsigned)wp)))
+            && (!basic_113 || !s.other_panel)
 #endif
         ) {
             LPARAM scan = (LPARAM)MapVirtualKeyW((UINT)wp, MAPVK_VK_TO_VSC) << 16;
@@ -936,7 +936,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
         }
         unsigned binding = binding_for((unsigned)wp);
 #ifdef R5K_QOL_UI
-        if(binding>=QOL_CLEAR_ALL||(basic_113&&!qol_ported_wheel_action(binding)))binding=0;
+        if(binding>=QOL_CLEAR_ALL)binding=0;
 #endif
         if(binding==BIND_DOOR&&!(lp&((LPARAM)1<<30)))memset(&door_clean,0,sizeof(door_clean));
         HWND active;
@@ -1176,6 +1176,8 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
             (image==(uintptr_t)GetModuleHandleW(NULL)&&memcmp((void*)(image+0x188391),shift_branch,sizeof shift_branch)))return 1;
         if(configure(loader,"Enable additional hotkeys","Waypoint-wheel movement, reload, go-code and path shortcuts.",true)||
             !configure_door_settings()||
+            !init_door_sequence()||
+            !init_position_only()||
             api->CreateSafeHook(auto_toggle,observe_go_code,NULL,NULL)!=DK2ML_OK||
             api->EnableHook(auto_toggle)!=DK2ML_OK||
             !hook_named("GameInput::CheckKeyboardEvents",0x12c9e0,NULL,input_post)||
@@ -1186,7 +1188,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
             !install_window_bridge()||
             api->Subscribe(DK2ML_EVENT_FRAME,frame,NULL)!=DK2ML_OK||
             !configure_pie_right_drag())return 1;
-        api->Log("Cursor Hotkeys 1.13: basic waypoint-wheel shortcuts ready.");
+        api->Log("Cursor Hotkeys 1.13: waypoint shortcuts and both door commands ready.");
         return 0;
     }
 #endif

@@ -2,6 +2,8 @@
 #define R5K_DOOR_SEQUENCE_H
 #include "door_geometry.h"
 static uintptr_t door_type_fn,path_add_fn,path_end_fn,path_notify_fn,door_gocode_fn,door_selected_fn,door_potential_fn,door_open_wheel_fn;
+static uintptr_t door_client_slot,door_gui_slot,door_input_slot,door_potential_slot;
+static unsigned door_entity_limit;
 typedef struct {bool pending;uintptr_t client,map;uint32_t owner,door,buddy;ULONGLONG until;DoorGeometry geometry;} DoorRequest;
 static DoorRequest door_request;
 // A one-use continuation: close old wheel, clear the breacher, then reopen at
@@ -18,16 +20,34 @@ static bool door_geometry(uintptr_t door,const float approach[2],DoorGeometry *g
  float along[2]={x>=z?left[0]:forward[0],x>=z?left[2]:forward[2]};
  return door_goal(g,center,along,fmaxf(x,z)*scale*.5f,approach,door_sidestep_distance);
 }
+static void consider_door_buddy(uintptr_t human,uintptr_t breacher,uintptr_t client,
+ const float origin[3],float *best_distance,uint32_t *best) {
+ uint32_t id=0;float position[3],health=0;int mode=-1;
+ if(human==breacher||!friendly_human(human,client,&id)||!read_at(human+40,&health,4)||!isfinite(health)||health<=0||
+    !read_at(human+3460,&mode,4)||mode!=0||!read_at(human+108,position,12))return;
+ float distance=door_buddy_distance(origin,position);
+ if(distance>=0&&(distance<*best_distance||(distance==*best_distance&&(!*best||id<*best)))){
+  *best=id;*best_distance=distance;
+ }
+}
 static uint32_t nearest_door_buddy(uintptr_t breacher,uintptr_t client) {
  uintptr_t head=0,node=0,human=0;float origin[3],best_distance=2.25f;uint32_t best=0;
- if(!read_at(breacher+108,origin,12)||!read_at(image+0x7cb820,&head,8)||!head||!read_at(head+24,&human,8))return 0;
- for(unsigned scanned=0;human&&scanned<4096;++scanned) {
-  uint32_t id=0;float position[3],health=0;int mode=-1;
-  if(human!=breacher&&friendly_human(human,client,&id)&&read_at(human+40,&health,4)&&isfinite(health)&&health>0&&
-     read_at(human+3460,&mode,4)&&mode==0&&read_at(human+108,position,12)) {
-   float distance=door_buddy_distance(origin,position);
-   if(distance>=0&&(distance<best_distance||(!best&&distance<=best_distance)||(distance==best_distance&&id<best))) {best=id;best_distance=distance;}
+ if(!read_at(breacher+108,origin,12))return 0;
+#ifdef R5K_QOL_UI
+ if(basic_113){
+  uintptr_t entities[waypoint_pool_limit_113];
+  if(!read_at(client+entity_pool_offset_113,entities,sizeof entities))return 0;
+  for(unsigned i=1;i<waypoint_pool_limit_113;i++){
+   uintptr_t table=0,type=0;
+   if(entities[i]&&read_at(entities[i],&table,8)&&read_at(table+8,&type,8)&&type==human_type_113)
+    consider_door_buddy(entities[i],breacher,client,origin,&best_distance,&best);
   }
+  return best;
+ }
+#endif
+ if(!read_at(image+0x7cb820,&head,8)||!head||!read_at(head+24,&human,8))return 0;
+ for(unsigned scanned=0;human&&scanned<4096;++scanned) {
+  consider_door_buddy(human,breacher,client,origin,&best_distance,&best);
   if(!read_at(human+0x1d8,&node,8)||!node||node==head||!read_at(node+24,&human,8))break;
  }
  return best;
@@ -38,7 +58,7 @@ static bool find_open_button(void *node,unsigned depth,unsigned *visited,unsigne
  if(read_at((uintptr_t)node+144,&accepts,1)&&accepts&&read_at(click+16,&count,4)&&count>0&&count<=32&&read_at(click+8,&actions,8))
   for(int i=0;i<count;++i) {
    uintptr_t a=0;uint32_t kind=0,event=0,type=0;
-   if(read_at(actions+i*8,&a,8)&&a&&read_at(a+8,&kind,4)&&kind==6&&read_at(a+40,&event,4)&&event==73&&
+   if(read_at(actions+i*8,&a,8)&&a&&read_at(a+8,&kind,4)&&kind==6&&read_at(a+40,&event,4)&&event==wheel_clicked_event&&
       read_at(a+64,&type,4)&&type==21&&read_at(a+48,params,24)){*button=node;return true;}
   }
  void *children[128];int n=api->GuiChildren(node,children,128);if(n<0||n>128)return false;
@@ -48,12 +68,12 @@ static bool find_open_button(void *node,unsigned depth,unsigned *visited,unsigne
 static bool door_wheel_at_body(uintptr_t client,uintptr_t human) {
  (void)client;
  uintptr_t input=0,gui=0,wheel=0,potential=0;float origin[3];uint32_t owner=0;
- if(!read_at(image+0xfe8a68,&input,8)||!input||!read_at(image+0xfe71a8,&gui,8)||!gui||
+ if(!read_at(door_input_slot,&input,8)||!input||!read_at(door_gui_slot,&gui,8)||!gui||
     !read_at(gui+8,&wheel,8)||!wheel||!read_at(human+108,origin,12))return false;
  api->GuiShow((void*)wheel,0);
  typedef bool(*potential_fn)(void*,void*,float*,int);
  if(!((potential_fn)door_potential_fn)((void*)input,(void*)human,origin,0)||
-    !read_at(image+0xfe6f38,&potential,8)||!potential||!read_at(potential+0x220,&owner,4))return false;
+    !read_at(door_potential_slot,&potential,8)||!potential||!read_at(potential+0x220,&owner,4))return false;
  uint32_t id=0;if(!read_at(human+16,&id,4)||owner!=id)return false;
  // Button2_Click clears the potential default action before opening its wheel.
  uint32_t ignore=0;SIZE_T written=0;
@@ -74,28 +94,29 @@ static bool door_cursor_anchor(uintptr_t human,uintptr_t wp,bool body,float anch
 }
 static void start_position_only(uintptr_t human,uintptr_t client,uintptr_t map,uintptr_t door,uintptr_t wheel,const float anchor[3]);
 static void dispatch_door(unsigned binding) {
- uintptr_t gui=0,wheel=0,client=0,map=0,wp=0,door=0,human=0,target=0,table=0,fn=0;
- uint32_t wp_id=0,door_id=0,owner=0,id=0;unsigned char opened=1,locked=1,params[24];unsigned visited=0;void *button=NULL;
+ uintptr_t wheel=0,client=0,map=0,wp=0,door=0,human=0,target=0,table=0,fn=0;
+ uint32_t wp_id=0,door_id=0,id=0;unsigned char opened=1,locked=1,params[24];unsigned visited=0;void *button=NULL;
  float door_anchor[3]={0};
  door_request.pending=false;
  if(binding==BIND_DOOR) {
-  uint32_t context_id=0;
-  if(!read_at(image+0xff0ea8,&client,8)||!client||!read_at(image+0xfe71a8,&gui,8)||!gui||
-     !read_at(gui+8,&wheel,8)||!wheel||!read_at(wheel+856,&wp_id,4)||!wp_id||wp_id>100000||
-     !read_at(client+0x2e8+wp_id*8,&wp,8)||!wp||!read_at(wp+0x220,&owner,4)||!owner||owner>100000||
-     !read_at(client+0x2e8+owner*8,&human,8)||!friendly_human(human,client,&context_id))return;
+  ActionWheelContext context;
+  if(!read_action_wheel(&context))return;
+  client=context.client;wheel=context.wheel;wp=context.waypoint;human=context.human;
   bool body=cursor_hits_body(client,human);
   if(!door_cursor_anchor(human,wp,body,door_anchor)|| (body&&!door_wheel_at_body(client,human))) {
    api->GuiShow((void*)wheel,0);api->Log("Door 1.3.6: invalid cursor body/path context; existing orders preserved.");return;
   }
-  api->Log("Door 1.3.6: availability from %s at %.3f,%.3f for trooper %u.",body?"body":"native path point",door_anchor[0],door_anchor[2],context_id);
+  api->Log("Door 1.3.6: availability from %s at %.3f,%.3f for trooper %u.",body?"body":"native path point",door_anchor[0],door_anchor[2],context.human_id);
  }
- if(!read_at(image+0xfe71a8,&gui,8)||!read_at(gui+8,&wheel,8)||
-    !read_at(wheel+848+8,&wp_id,4)||!wp_id||wp_id>100000||!read_at(wheel+848,&target,8)||
-    !read_at(target,&door_id,4)||!door_id||door_id>100000||!read_at(image+0xff0ea8,&client,8)||
-    !read_at(client+0x28,&map,8)||!map||!read_at(client+0x2e8+wp_id*8,&wp,8)||!wp||
-    !read_at(wp+0x220,&owner,4)||owner>100000||!read_at(client+0x2e8+owner*8,&human,8)||
-    !friendly_human(human,client,&id)||!read_at(client+0x2e8+door_id*8,&door,8)||!door||
+ ActionWheelContext context;
+ if(!read_action_wheel(&context)){
+  if(wheel&&api->GuiIsShown((void*)wheel))api->GuiShow((void*)wheel,0);
+  return;
+ }
+ wheel=context.wheel;client=context.client;wp=context.waypoint;wp_id=context.waypoint_id;
+ human=context.human;id=context.human_id;
+ if(!read_at(wheel+848,&target,8)||!read_at(target,&door_id,4)||!door_id||door_id>=door_entity_limit||
+    !read_at(client+0x28,&map,8)||!map||!read_at(client+0x2e8+door_id*8,&door,8)||!door||
     !read_at(door,&table,8)||!read_at(table+8,&fn,8)||fn!=door_type_fn||
     !read_at(door+496,&opened,1)||opened||!read_at(door+497,&locked,1)||locked) {
   api->Log("Door hotkey: no available normal-open action; no kick substituted.");
@@ -360,6 +381,15 @@ static void update_door_sequence(uintptr_t client,uintptr_t map) {
  }
 }
 static bool init_door_sequence(void) {
+ bool current=false;
+#ifdef R5K_QOL_UI
+ current=basic_113;
+#endif
+ door_client_slot=image+(current?0x1038c40:0xff0ea8);
+ door_gui_slot=image+(current?0x100ce18:0xfe71a8);
+ door_input_slot=image+(current?0x100e6e0:0xfe8a68);
+ door_potential_slot=image+(current?0x100bf38:0xfe6f38);
+ door_entity_limit=current?12000:100001;
  door_selected_fn=(uintptr_t)api->ResolveSymbol("GameInput::GetSelectedHuman");
  door_potential_fn=(uintptr_t)api->ResolveSymbol("GameInput::UpdatePotentialActionWaypoint");
  door_open_wheel_fn=(uintptr_t)api->ResolveSymbol("GameGUI::OpenWaypointMenu");
@@ -368,7 +398,10 @@ static bool init_door_sequence(void) {
  path_add_fn=(uintptr_t)api->ResolveSymbol("Path::AddToPath");
  path_end_fn=(uintptr_t)api->ResolveSymbol("Path::AddToPath_End");
  path_notify_fn=(uintptr_t)api->ResolveSymbol("Human_Client::NotifyServerOfPathModification");
- return door_selected_fn==image+0x137090&&door_potential_fn==image+0x131d40&&door_open_wheel_fn==image+0xfd3f0&&door_gocode_fn==image+0x9c9d0&&door_type_fn&&path_add_fn==image+0x198fa0&&path_end_fn==image+0x198800&&path_notify_fn==image+0xb9a50&&
+ return door_selected_fn==image+(current?0x135dc0:0x137090)&&door_potential_fn==image+(current?0x1302b0:0x131d40)&&
+ door_open_wheel_fn==image+(current?0xfdaf0:0xfd3f0)&&door_gocode_fn==image+(current?0x9ba00:0x9c9d0)&&
+ (current?door_type_fn==image+0xa3000:door_type_fn!=0)&&path_add_fn==image+(current?0x199f70:0x198fa0)&&
+ path_end_fn==image+(current?0x199730:0x198800)&&path_notify_fn==image+(current?0xb7920:0xb9a50)&&
  api->GetTypeSize("Path")==184&&api->GetTypeSize("sActionWP")==84&&api->GetTypeSize("Waypoints::sPointParams")==12;
 }
 #endif

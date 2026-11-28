@@ -24,7 +24,7 @@ static int door_sync_pre(DK2ML_Regs *regs,void *user) {
  (void)user;regs->scratch[0]=0;
  uintptr_t human=(uintptr_t)DK2ML_Arg(regs,0),action=(uintptr_t)DK2ML_Arg(regs,1),client=0,map=0,list=0;
  uint32_t owner=0,type=0,code=0;int count=0,index=-1;float target[3];
- if(!enabled||!read_at(image+0xff0ea8,&client,8)||!client||!read_at(client+0x28,&map,8)||
+ if(!enabled||!read_at(door_client_slot,&client,8)||!client||!read_at(client+0x28,&map,8)||
     !read_at(action+0x13c,&type,4)||type!=6||!read_at(action+0x174,&code,4)||code!=4||
     !read_at(action+0x16c,&owner,4)||!owner||!read_at(action+0x144,target,12)||!read_at(action+0x184,&index,4))return DK2ML_CALL_ORIGINAL;
  DoorSyncPlan plan={0};
@@ -64,6 +64,11 @@ static void door_sync_post(DK2ML_Regs *regs,void *user) {
   api->Log("Door 1.4.2: moved native completion-sync barrier after Open (group=%u, index=%d->%d).",(unsigned)regs->scratch[2],old_index,opening_index);
 }
 static bool install_door_completion_sync(void) {
+#ifdef R5K_QOL_UI
+ if(basic_113)return api->GetFieldOffset("Human_Server","m_actionWaypoints")==0x1528&&
+  api->GetFieldOffset("ActionWP_Server","m_action")==0x13c&&
+  hook_named("Human_Server::TryToSyncAfterWaypoint",0x2bc350,door_sync_pre,door_sync_post);
+#endif
  return hook_named("Human_Server::TryToSyncAfterWaypoint",0x2ad6e0,door_sync_pre,door_sync_post);
 }
 #endif

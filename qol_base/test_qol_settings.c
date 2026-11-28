@@ -76,20 +76,17 @@ int main(void){
  reset_settings(0);
  assert(conflict_notice&&bindings[0].key=='K'&&bindings[18].key=='G');
 
- // The test build exposes only the shortcuts it implements and keeps full-version preferences.
+ // The 1.13 port exposes all five sections and retains saved key preferences.
  bindings[18].key='M';binding_changed(NULL,(void*)(uintptr_t)18);
  loader.GetGameVersion=mock_version_113;
- assert(qol_ui_prepare(&loader)==0&&basic_113);
+ assert(qol_ui_prepare(&loader)==0);
  option_count=0;registered=0;headers=0;memset(section_seen,0,sizeof section_seen);
  collect("Enable additional hotkeys",DK2ML_OPTION_BOOL,&order_enabled);
  assert(qol_ui_register()==0);
- assert(headers==5&&registered==51&&section_seen[0]==1&&section_seen[1]==1&&!section_seen[2]&&section_seen[3]==1&&section_seen[4]==1);
- assert(qol_ported_wheel_action('F')&&qol_ported_wheel_action(256)&&qol_ported_wheel_action(259));
- assert(qol_ported_action(QOL_AUTO_A)&&qol_ported_action(QOL_AUTO_ALL)&&qol_ported_action(QOL_SPEED_TOGGLE));
- assert(!qol_ported_wheel_action(QOL_AUTO_A)&&qol_ported_action(QOL_CLEAR_ALL)&&!qol_ported_action(257));
+ assert(headers==5&&registered==55&&section_seen[0]==1&&section_seen[1]==1&&section_seen[2]==1&&section_seen[3]==1&&section_seen[4]==1);
  reset_settings(0);
  assert(bindings[0].key=='G'&&bindings[18].key=='M');
- puts("PASS: 1.13 exposes weapon, speed and autoexecution shortcuts and preserves unavailable bindings.");
+ puts("PASS: 1.13 exposes all sections and retains saved bindings.");
  assert(DeleteFileW(binding_path));assert(RemoveDirectoryW(unique));
  puts("PASS: all 24 bindings, exact modifiers, cross-section conflict rejection, rebind persistence, capture/cancel/unbind, five groups and fixed reset defaults with callbacks after value restoration.");
  return 0;

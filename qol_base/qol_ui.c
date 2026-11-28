@@ -27,7 +27,6 @@ typedef struct {DK2ML_Option option;int section;union {bool boolean;int integer;
 static QolOption options[32];static size_t option_count;
 static const DK2ML_API *api;static wchar_t binding_path[MAX_PATH];
 static int capture=-1;static bool conflict_notice;
-static bool basic_113;
 static int scalar_float,scalar_int;
 typedef struct {float x,y;} Vec2;
 static bool (*button)(const char*,const Vec2*,int);
@@ -120,7 +119,6 @@ static void reset_settings(int page){
  memcpy(updated,bindings,sizeof updated);
  for(size_t i=0;i<COUNT(updated);i++){
   if(page>=0&&updated[i].section!=page)continue;
-  if(basic_113&&!qol_ported_action(updated[i].action))continue;
   updated[i].key=updated[i].last_key=updated[i].default_key;
   updated[i].mods=updated[i].last_mods=updated[i].default_mods;
  }
@@ -134,7 +132,6 @@ static void reset_all(const DK2ML_Option *option,void *user){
 }
 int qol_ui_prepare(const DK2ML_API *loader){
  api=loader;const wchar_t *dir=api->GetConfigDir();if(!dir||wcslen(dir)+17>=MAX_PATH)return 1;
- basic_113=api->GetGameVersion&&api->GetGameVersion()==113;
  swprintf(binding_path,MAX_PATH,L"%lsbindings.ini",dir);
  QolBinding *all=&bindings[COUNT(bindings)-1];
  SHORT hash_key=VkKeyScanW(L'#');
@@ -181,7 +178,6 @@ static bool is_default_slow_speed(const DK2ML_Option *option){
 
 int qol_ui_register(void){
  for(int group=0;group<5;group++){
-  if(basic_113&&group==2)continue;
   DK2ML_Option header={0};header.structSize=sizeof header;header.type=DK2ML_OPTION_HEADER;header.label=sections[group];
   if(api->AddOption(&header)!=DK2ML_OK)return 1;
   for(size_t i=0;i<option_count;i++)if(options[i].section==group){
@@ -189,8 +185,7 @@ int qol_ui_register(void){
    if(is_default_slow_speed(&o))continue;
    if(api->AddOption(&o)!=DK2ML_OK)return 1;
   }
-  for(size_t i=0;i<COUNT(bindings);i++)if(bindings[i].section==group&&
-      (!basic_113||qol_ported_action(bindings[i].action))){
+  for(size_t i=0;i<COUNT(bindings);i++)if(bindings[i].section==group){
    DK2ML_Option o={0};o.structSize=sizeof o;o.type=DK2ML_OPTION_KEY;o.label=bindings[i].label;
    o.value=&bindings[i].key;o.onChange=binding_changed;o.user=(void*)(uintptr_t)i;
    o.tooltip="Click to change the keyboard key; Backspace/Delete unbinds. Choose modifiers in the next row. Duplicate QOL combinations are refused.";
@@ -204,11 +199,6 @@ int qol_ui_register(void){
    if(api->AddOption(&options[i].option)!=DK2ML_OK)return 1;
   }
  }
- if(basic_113){
-  DK2ML_Option status={0};status.structSize=sizeof status;status.type=DK2ML_OPTION_HEADER;
-  status.label="1.13 test build: Open & Center-Check and Open door only are pending";
-  if(api->AddOption(&status)!=DK2ML_OK)return 1;
- }
  DK2ML_Option reset={0};reset.structSize=sizeof reset;reset.type=DK2ML_OPTION_BUTTON;
  reset.label="Reset QOL Tweaks to defaults";reset.tooltip="Reset only QOL Tweaks, including all key bindings, to the saved 2026-11-17 defaults.";reset.onChange=reset_all;
  return api->AddOption(&reset)!=DK2ML_OK;
@@ -220,7 +210,6 @@ static void key_label(const QolBinding *b,char *label,size_t size){
  snprintf(label,size,"%s%s%s%s",(b->mods&QOL_CTRL)?"Ctrl+":"",(b->mods&QOL_ALT)?"Alt+":"",(b->mods&QOL_SHIFT)?"Shift+":"",key);
 }
 static void draw_binding(size_t i){
- if(basic_113&&!qol_ported_action(bindings[i].action))return;
  float em=text_line_height ? text_line_height() : 18.0f;
  const Vec2 key_size={17.0f*em,0};
  char key[100],label[160];
@@ -248,17 +237,6 @@ static void draw_option(DK2ML_Option *o){
 
 void qol_draw_settings(int page,void (*heading)(const char *)){
  if(page<0||page>=(int)COUNT(sections))return;
- if(basic_113){
-  static const char *unavailable[]={
-   NULL,
-   NULL,
-   "Open & Center-Check and Open door only await porting to 1.13.",
-   NULL,
-   NULL
-  };
-  if(unavailable[page])text("%s",unavailable[page]);
-  if(page==2)return;
- }
  if(page!=0)heading(sections[page]);
  if(page==2){
   text("The sequence only works on unlocked doors.");
@@ -282,7 +260,6 @@ void qol_draw_settings(int page,void (*heading)(const char *)){
  if(conflict_notice)text("That combination is already assigned or reserved. Previous binding kept.");
 }
 void qol_draw_reset(int page){
- if(basic_113&&page==2)return;
  const Vec2 automatic={0,0};
  if(button("Reset this tab",&automatic,0))reset_settings(page);
 }

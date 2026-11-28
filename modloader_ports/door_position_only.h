@@ -131,7 +131,7 @@ static void start_position_only(uintptr_t human,uintptr_t client,uintptr_t map,u
  if(!found){position_discard();api->Log("Door 1.4.2: no reachable opening-valid destination; existing orders preserved.");return;}
  // Buddy selection uses current body distance, never a distant future waypoint.
  uint32_t buddy_id=nearest_door_buddy(human,client);uintptr_t buddy=0;uint32_t verified=0;
- if(buddy_id&&buddy_id<100000&&read_at(client+0x2e8+buddy_id*8,&buddy,8)&&friendly_human(buddy,client,&verified)&&verified==buddy_id) {
+ if(buddy_id&&buddy_id<door_entity_limit&&read_at(client+0x2e8+buddy_id*8,&buddy,8)&&friendly_human(buddy,client,&verified)&&verified==buddy_id) {
   float opening[3];memcpy(opening,position_request.look+84+60,12);
   if(!position_build_buddy(buddy,buddy_id,&chosen,opening)||!position_append_buddy(buddy,&chosen)) {
    position_free(&position_buddy);api->Log("Door 1.4.2: full buddy route unavailable; buddy's existing plan preserved.");
@@ -144,11 +144,27 @@ static void start_position_only(uintptr_t human,uintptr_t client,uintptr_t map,u
  position_request.started=GetTickCount64();position_request.active=true;
  api->Log("Door 1.4.2: clear requested; waiting for old plan removal.");
 }
-static bool position_is_cleared(uintptr_t human,uint32_t id) {
+static bool position_is_cleared(uintptr_t client,uintptr_t human,uint32_t id) {
  int count=0;if(!read_at(human+0xd90+56,&count,4)||count<0||count>1)return false;
  if(count==1){uintptr_t p=0;float point[3],body[3];if(!read_at(human+0xd90+48,&p,8)||!read_at(p,point,12)||!read_at(human+108,body,12)||hypotf(point[0]-body[0],point[2]-body[2])>.1f)return false;}
  uintptr_t head=0,wp=0,node=0,potential=0;
- if(!read_at(image+0x7cb540,&head,8)||!read_at(image+0xfe6f38,&potential,8))return false;
+ if(!read_at(door_potential_slot,&potential,8))return false;
+#ifdef R5K_QOL_UI
+ if(basic_113){
+  uintptr_t entities[waypoint_pool_limit_113];
+  if(!read_at(client+entity_pool_offset_113,entities,sizeof entities))return false;
+  for(unsigned i=1;i<waypoint_pool_limit_113;i++){
+   uint32_t owner=0,type=0,code=0;uintptr_t table=0,kind=0,entity=entities[i];
+   if(!entity||entity==potential||!read_at(entity,&table,8)||!read_at(table+8,&kind,8)||kind!=waypoint_type_113)continue;
+   if(!read_at(entity+0x220,&owner,4)||!read_at(entity+0x1f0,&type,4)||!read_at(entity+0x228,&code,4))return false;
+   if(owner==id&&(type||code))return false;
+  }
+  return true;
+ }
+#else
+ (void)client;
+#endif
+ if(!read_at(image+0x7cb540,&head,8))return false;
  if(head&&!read_at(head+24,&wp,8))return false;
  for(unsigned i=0;wp&&i<4096;++i){uint32_t owner=0,type=0,code=0;
   if(!read_at(wp+0x220,&owner,4)||!read_at(wp+0x1f0,&type,4)||!read_at(wp+0x228,&code,4))return false;
@@ -217,15 +233,15 @@ static bool position_commit_local(uintptr_t human) {return position_commit_plan(
 static void position_only_post(void) {
  uintptr_t client=0,map=0,human=0;uint32_t id=0;HWND window;state s={0};
  if(!enabled||!game_foreground(&window)||window!=hooked_window||!get_state(&s)||!s.playing||s.other_panel||
-    !read_at(image+0xff0ea8,&client,8)||client!=position_request.client||!read_at(client+0x28,&map,8)||map!=position_request.map||
+    !read_at(door_client_slot,&client,8)||client!=position_request.client||!read_at(client+0x28,&map,8)||map!=position_request.map||
     GetTickCount64()-position_request.started>2000||!read_at(client+0x2e8+position_request.owner*8,&human,8)||
     !friendly_human(human,client,&id)||id!=position_request.owner){api->Log("Door 1.4.2: cancelled/timed out; no new plan submitted.");position_discard();return;}
- if(GetTickCount64()-position_request.started<100||!position_is_cleared(human,id))return;
+ if(GetTickCount64()-position_request.started<100||!position_is_cleared(client,human,id))return;
  uintptr_t buddy=0;uint32_t buddy_id=0;
  if(position_buddy.active) {
   if(!read_at(client+0x2e8+position_buddy.owner*8,&buddy,8)||!friendly_human(buddy,client,&buddy_id)||buddy_id!=position_buddy.owner) {
    position_free(&position_buddy);buddy=0;
-  }else if(!position_is_cleared(buddy,buddy_id))return;
+  }else if(!position_is_cleared(client,buddy,buddy_id))return;
  }
  // Verify both local commits before serializing paired D markers.
  if(buddy&&!position_commit_plan(buddy,&position_buddy)) {
@@ -245,10 +261,16 @@ static void position_only_post(void) {
  api->Log("Door 1.4.2: breacher sequence submitted; paired D at arrival pie/staging before Open when buddy available.");position_discard();
 }
 static bool init_position_only(void) {
+ bool current=false;
+#ifdef R5K_QOL_UI
+ current=basic_113;
+#endif
  position_query_fn=(uintptr_t)api->ResolveSymbol("ActionWP_Client::CheckForSurroundingTargets");
  position_resize_fn=(uintptr_t)api->ResolveSymbol("Waypoints::Resize");
  position_bounds_fn=(uintptr_t)api->ResolveSymbol("Path::UpdateWaypointsBounds");
  position_coarse_reserve_fn=(uintptr_t)api->ResolveSymbol("List<Vector2>::Reserve");
- return position_query_fn==image+0xa0bb0&&position_resize_fn==image+0x2627a0&&position_bounds_fn==image+0x19b760&&position_coarse_reserve_fn==image+0x25a10&&install_door_completion_sync();
+ return position_query_fn==image+(current?0x9f650:0xa0bb0)&&position_resize_fn==image+(current?0x271680:0x2627a0)&&
+  position_bounds_fn==image+(current?0x19c910:0x19b760)&&position_coarse_reserve_fn==image+(current?0x280e0:0x25a10)&&
+  install_door_completion_sync();
 }
 #endif

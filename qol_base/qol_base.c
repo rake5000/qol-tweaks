@@ -6,7 +6,7 @@
 #include "../enemy_autopause/sdk/include/dk2ml.h"
 #include "qol_ui.h"
 
-DK2ML_PLUGIN_MANIFEST(3,"QOL Tweaks","0.2.40-dev","Rake5000","",112);
+DK2ML_PLUGIN_MANIFEST(3,"QOL Tweaks","0.2.41-dev","Rake5000","",112);
 
 // Persistent per-feature API copies preserve the legacy configuration namespace.
 // Do not merge translation units: their private state intentionally stays isolated.
@@ -73,7 +73,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
     if(qol_speed_init(&feature_api[3],info))return 1;
     if(qol_ui_register())return 1;
     if(basic_113)
-        loader->Log("QOL Tweaks 1.13 ready: waypoint hotkeys, go-code autoexecution, Speed Changer, normal-speed replays and trooper names.");
+        loader->Log("QOL Tweaks 1.13 ready: waypoint hotkeys, door commands, go-code autoexecution, Speed Changer, normal-speed replays and trooper names.");
     else
         loader->Log("QOL Tweaks ready: hotkeys including breaching, native Speed Changer, normal-speed replays, names and shared settings.");
     return 0;
