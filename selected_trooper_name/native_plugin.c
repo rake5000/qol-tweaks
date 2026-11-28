@@ -29,6 +29,25 @@ typedef struct {
 } CapturedLabel;
 static CapturedLabel captures[64];
 static unsigned capture_count;
+static struct {
+    unsigned status, valid, eligible, wanted, captured;
+    unsigned draw, empty, inactive, client_missing, font_missing, projection_rejected, submitted;
+} hover_trace;
+
+static void trace_hover_frame(const DK2ML_Event *event,void *user){
+    (void)event;(void)user;
+    static ULONGLONG last;
+    ULONGLONG now=GetTickCount64();
+    if(now-last<2000)return;
+    last=now;
+    if(enabled&&(hover_trace.status||hover_trace.draw)){
+        api->Log("Name hover sample (2s): status=%u valid=%u eligible=%u wanted=%u captured=%u draw=%u empty=%u inactive=%u client_missing=%u font_missing=%u projection_rejected=%u submitted=%u always=%d hover=%d",
+            hover_trace.status,hover_trace.valid,hover_trace.eligible,hover_trace.wanted,hover_trace.captured,
+            hover_trace.draw,hover_trace.empty,hover_trace.inactive,hover_trace.client_missing,hover_trace.font_missing,
+            hover_trace.projection_rejected,hover_trace.submitted,always_names,hover_names);
+    }
+    memset(&hover_trace,0,sizeof hover_trace);
+}
 
 static bool(*checkbox)(const char*,bool*);
 static bool(*slider)(const char*,int,void*,const void*,const void*,const char*,int);
@@ -101,10 +120,14 @@ static void after_status(DK2ML_Regs*r,void*u){
     (void)u;if(!enabled)return;
     uintptr_t human=r->scratch[0],input=pointer(image+(names_113?0x100e6e0:0xfe8a68)),renderer=pointer(image+(names_113?0x1038c30:0xff0e98));
     LabelList*list=(void*)r->scratch[1];
+    if(names_113)++hover_trace.status;
     if(!input||!renderer||!human||!list_valid(list))return;
+    if(names_113)++hover_trace.valid;
     uintptr_t client=pointer(image+(names_113?0x1038c40:0xff0ea8));if(!client||!eligible_human(human,client))return;
+    if(names_113)++hover_trace.eligible;
     bool selected=(uintptr_t)selected_human((void*)input)==human;
     if(!wants_name(selected,!selected&&!always_names&&hover_names&&hover_target_matches(human)))return;
+    if(names_113)++hover_trace.wanted;
     for(unsigned i=0;i<capture_count;++i)if(captures[i].human==human)return;
     if(capture_count>=64)return;
     // Human_Client::m_id is the same inline UTF-8 name used by UpdateHumanProfile.
@@ -116,6 +139,7 @@ static void after_status(DK2ML_Regs*r,void*u){
     float x=0,y=0;
     if(!names_113&&!project_trooper(client,point,&x,&y))return;
     CapturedLabel*label=&captures[capture_count++];label->human=human;
+    if(names_113)++hover_trace.captured;
     memcpy(label->name,name,(size_t)length);label->name[length]=0;
     if(names_113)memcpy(label->position.world,point,sizeof point);
     else {label->position.screen[0]=x;label->position.screen[1]=y;}
@@ -170,23 +194,28 @@ static int draw_label(DK2ML_Regs*r,void*u){
     r->scratch[0]=DK2ML_Arg(r,0);
 #endif
     uintptr_t renderer=DK2ML_Arg(r,0);
-    if(!count_labels||!renderer||!*(bool*)(renderer+0x13))return 0;
+    if(names_113)++hover_trace.draw;
+    if(!count_labels){if(names_113)++hover_trace.empty;return 0;}
+    if(!renderer||!*(bool*)(renderer+0x13)){if(names_113)++hover_trace.inactive;return 0;}
     // 1.13 draws the mission menu over this pass. Its reported visibility
     // can suppress every name even when the world remains visible.
     if(!names_113&&api->IsGameMenuOpen())return 0;
     uintptr_t client=0;
     if(names_113){
         client=pointer(image+0x1038c40);
-        if(!client)return 0;
+        if(!client){++hover_trace.client_missing;return 0;}
     }
     void *font=get_font();
-    if(!font)return 0;
+    if(!font){if(names_113)++hover_trace.font_missing;return 0;}
     for(unsigned label_index=0;label_index<count_labels;++label_index){
     const CapturedLabel *label=&captures[label_index];
     const char *captured_name=label->name;
     float screen_x,screen_y;
     if(names_113){
-        if(!project_trooper(client,label->position.world,&screen_x,&screen_y))continue;
+        if(!project_trooper(client,label->position.world,&screen_x,&screen_y)){
+            ++hover_trace.projection_rejected;
+            continue;
+        }
     }else{
         screen_x=label->position.screen[0];
         screen_y=label->position.screen[1];
@@ -209,6 +238,7 @@ static int draw_label(DK2ML_Regs*r,void*u){
         model[7]=y-gap-top*scale+offsets[pass][1];
         print_text(model,(void*)(renderer+renderer_camera+camera_projection),(void*)(renderer+renderer_camera+camera_view),font,pass==4?0xffcce3f0:0xff080808,captured_name);
     }
+    if(names_113)++hover_trace.submitted;
     }
     return 0;
 }
@@ -259,6 +289,7 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API*loader,const DK2ML_PluginInfo*
     after_gui=after_draw_labels;
 #endif
     void*gui;if(!resolve(&gui,"GameRenderer::RenderGUIItems",names_113?0x1560e0:0x156b70)||api->CreateSafeHook(gui,draw_label,after_gui,NULL)!=DK2ML_OK||api->EnableHook(gui)!=DK2ML_OK)return 1;
+    if(names_113&&api->Subscribe(DK2ML_EVENT_FRAME,trace_hover_frame,NULL)!=DK2ML_OK)return 1;
     api->Log("Ready 1.2.0: selected/body-or-path-hover/all friendly trooper names, native camera-projected labels. Author Rake5000.");return 0;
 }
 
