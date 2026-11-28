@@ -66,7 +66,55 @@ static bool read_at(uintptr_t address, void *out, SIZE_T count) {
 
 
 typedef struct { bool wheel_open, playing, other_panel; int captures; } state;
+#ifdef R5K_QOL_UI
+static bool basic_113;
+static uintptr_t global_gui,global_manager;
+static int wheel_offset,hidden_offset,list_offset,count_offset;
+static int64_t running_state;
+
+static bool resolve_basic_hotkeys(void) {
+    global_gui=(uintptr_t)api->ResolveSymbol("g_pGameGUI");
+    global_manager=(uintptr_t)api->ResolveSymbol("g_pGUIManager");
+    wheel_offset=api->GetFieldOffset("GameGUI","m_pWaypointMenu");
+    hidden_offset=api->GetFieldOffset("GUI::Item","m_hidden");
+    int capture=api->GetFieldOffset("GUIManager","m_exclusiveInputStack");
+    int items=api->GetFieldOffset("List<GUI::Item *>","m_list");
+    int count=api->GetFieldOffset("List<GUI::Item *>","m_elements");
+    // The 1.13 game-menu code reads the top capture through these fields.
+    if(!global_gui||!global_manager||wheel_offset!=8||hidden_offset!=128||
+        capture!=112||items!=8||count!=16)return false;
+    list_offset=capture+items;
+    count_offset=capture+count;
+    return api->GetGameState&&api->IsReplaying&&api->IsGameMenuOpen&&
+        api->GetEnumValue("GameClient::eCGameState","CGAMESTATE_RUNNING",&running_state)==DK2ML_OK;
+}
+
+static bool get_basic_state(state *s) {
+    s->playing=api->GetGameState()==running_state&&!api->IsReplaying();
+    if(!s->playing)return true;
+    uintptr_t gui=0,manager=0,wheel=0;
+    unsigned char hidden=1;
+    if(!read_at(global_gui,&gui,sizeof gui)||!gui||
+        !read_at(global_manager,&manager,sizeof manager)||!manager||
+        !read_at(gui+wheel_offset,&wheel,sizeof wheel)||!wheel||
+        !read_at(wheel+hidden_offset,&hidden,sizeof hidden)||hidden>1)return false;
+    s->wheel_open=!hidden;
+    if(!s->wheel_open){
+        s->other_panel=api->IsGameMenuOpen()!=0;
+        return true;
+    }
+    uintptr_t list=0,top=0;
+    if(!read_at(manager+count_offset,&s->captures,sizeof s->captures)||s->captures<1||s->captures>=100||
+        !read_at(manager+list_offset,&list,sizeof list)||!list||
+        !read_at(list+(s->captures-1)*sizeof top,&top,sizeof top))return false;
+    s->other_panel=top!=wheel;
+    return true;
+}
+#endif
 static bool get_state(state *s) {
+#ifdef R5K_QOL_UI
+    if(basic_113)return get_basic_state(s);
+#endif
     uintptr_t gui = 0, wheel = 0, manager = 0, client = 0;
     unsigned char hidden = 1;
     int phase = 0;
@@ -138,6 +186,9 @@ static bool clear_button_available(unsigned binding){
     return button&&api->GuiIsShown(button)&&read_at((uintptr_t)button+144,&accepts,1)&&accepts;
 }
 static LRESULT send_toggle_key(WNDPROC forward,HWND window,UINT message,WPARAM key,LPARAM data,unsigned binding) {
+#ifdef R5K_QOL_UI
+    if(basic_113)return CallWindowProcW(forward,window,message,key,data);
+#endif
     bool grenade=binding==BIND_FLASH||binding==BIND_FRAG;
     bool door=binding==BIND_DOOR||binding==BIND_DOOR_ONLY;
     bool suppression=binding==BIND_SUPPRESSION;
@@ -606,6 +657,9 @@ static void input_post(DK2ML_Regs *regs, void *user) {
 static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     WNDPROC forward = original_proc;
     if (message == autoexec_message) {
+#ifdef R5K_QOL_UI
+        if(basic_113)return 0;
+#endif
         HWND active;
         state s = {0};
         if (game_foreground(&active) && active == window &&
@@ -622,7 +676,11 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
         HWND active;
         state s = {0};
         if (forward && game_foreground(&active) && active == window &&
-            get_state(&s) && s.playing && s.wheel_open) {
+            get_state(&s) && s.playing && s.wheel_open
+#ifdef R5K_QOL_UI
+            && (!basic_113 || (!s.other_panel && qol_basic_action((unsigned)wp)))
+#endif
+        ) {
             LPARAM scan = (LPARAM)MapVirtualKeyW((UINT)wp, MAPVK_VK_TO_VSC) << 16;
             send_toggle_key(forward, window, WM_KEYDOWN, wp, scan | 1,(unsigned)wp);
             if(wp!=BIND_FLASH&&wp!=BIND_FRAG&&wp!=BIND_DOOR&&wp!=BIND_DOOR_ONLY&&wp!=BIND_SUPPRESSION)
@@ -638,7 +696,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
         if (swallowed[wp]) return 0; // Ignore physical key repeat.
 #ifdef R5K_QOL_UI
         unsigned action=binding_for((unsigned)wp);
-        if(action==QOL_CLEAR_ALL) {
+        if(!basic_113&&action==QOL_CLEAR_ALL) {
 #else
         if(wp=='C'&&(GetKeyState(VK_MENU)&0x8000)&&
             !((GetKeyState(VK_SHIFT)|GetKeyState(VK_CONTROL))&0x8000)) {
@@ -651,7 +709,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
             }
         }
 #ifdef R5K_QOL_UI
-        if((action>=QOL_AUTO_A&&action<QOL_AUTO_A+4)||action==QOL_AUTO_ALL) {
+        if(!basic_113&&((action>=QOL_AUTO_A&&action<QOL_AUTO_A+4)||action==QOL_AUTO_ALL)) {
 #else
         if (wp >= '1' && wp <= '4' &&
             (GetKeyState(VK_CONTROL) & 0x8000) &&
@@ -674,7 +732,7 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
             }
         }
 #ifdef R5K_QOL_UI
-        if(action=='C') {
+        if(!basic_113&&action=='C') {
 #else
         if(wp=='C'&&!((GetKeyState(VK_SHIFT)|GetKeyState(VK_CONTROL)|GetKeyState(VK_MENU))&0x8000)) {
 #endif
@@ -688,13 +746,17 @@ static LRESULT CALLBACK hotkey_proc(HWND window, UINT message, WPARAM wp, LPARAM
         }
         unsigned binding = binding_for((unsigned)wp);
 #ifdef R5K_QOL_UI
-        if(binding>=QOL_CLEAR_ALL)binding=0;
+        if(binding>=QOL_CLEAR_ALL||(basic_113&&!qol_basic_action(binding)))binding=0;
 #endif
         if(binding==BIND_DOOR&&!(lp&((LPARAM)1<<30)))memset(&door_clean,0,sizeof(door_clean));
         HWND active;
         state s = {0};
         if (binding && game_foreground(&active) && active == window &&
-            get_state(&s) && s.playing) {
+            get_state(&s) && s.playing
+#ifdef R5K_QOL_UI
+            && (!basic_113 || !s.other_panel)
+#endif
+        ) {
             if ((lp & ((LPARAM)1 << 30)) && (s.wheel_open || !s.other_panel)) return 0;
             // Resolve Shift+C before dispatch so releasing Shift cannot change
             // the selected action while the wheel is being opened.
@@ -783,7 +845,11 @@ static void on_present(void *runtime) {
     ULONGLONG now = GetTickCount64();
     if (pending) {
         if (window != request_window) { pending = 0; return; }
-        if (pending == 1 && s.wheel_open) {
+        if (pending == 1 && s.wheel_open
+#ifdef R5K_QOL_UI
+            && (!basic_113 || !s.other_panel)
+#endif
+        ) {
             if (!PostMessageW(window, dispatch_message, dispatch_key, 0)) {
                 log_text(2, "DK2 Hotkeys v4: could not queue action key.");
                 pending = 0;
@@ -846,7 +912,7 @@ static int window_pre(DK2ML_Regs *regs, void *user) {
         (HWND)(uintptr_t)DK2ML_Arg(regs, 0) != hooked_window) return DK2ML_CALL_ORIGINAL;
     current_message = (UINT)DK2ML_Arg(regs, 1);
 #ifdef R5K_QOL_UI
-    pie_input_message(current_message);
+    if(!basic_113)pie_input_message(current_message);
 #endif
     current_wp = (WPARAM)DK2ML_Arg(regs, 2);
     current_lp = (LPARAM)DK2ML_Arg(regs, 3);
@@ -870,10 +936,26 @@ static void frame(const DK2ML_Event *event, void *user) {
     else { pending = 0; queued_key = 0; autoexec_requests = 0; }
 }
 DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInfo *info) {
-    (void)info; image = (uintptr_t)loader->ResolveSymbol("GameClient::UpdateCamera") - 0x187f70;
+    (void)info;
+#ifdef R5K_QOL_UI
+    basic_113=loader->GetGameVersion()==113;
+    if(basic_113){
+        api=loader;
+        if(!resolve_basic_hotkeys()){
+            api->Log("Cursor Hotkeys 1.13: waypoint menu or input layout unavailable.");
+            return 1;
+        }
+        if(configure(loader,"Enable additional hotkeys","Waypoint-wheel movement, reload, go-code and path shortcuts.",true)||
+            !install_window_bridge()||
+            api->Subscribe(DK2ML_EVENT_FRAME,frame,NULL)!=DK2ML_OK)return 1;
+        api->Log("Cursor Hotkeys 1.13: basic waypoint-wheel shortcuts ready.");
+        return 0;
+    }
+#endif
+    image = (uintptr_t)loader->ResolveSymbol("GameClient::UpdateCamera") - 0x187f70;
     void *click=loader->ResolveSymbol("PlayGUIClicked");
     if((uintptr_t)click==image+0x2acc0)play_gui_click=(void (*)(void))click;
-    if (configure(loader, "Enable additional hotkeys", "Cursor wheel actions, cancellation and go-code autoexecution.") ||
+    if (configure(loader, "Enable additional hotkeys", "Cursor wheel actions, cancellation and go-code autoexecution.", false) ||
         !configure_door_settings() ||
         !resolve_hover_clear() ||
         !init_door_sequence() ||

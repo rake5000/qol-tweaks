@@ -84,7 +84,7 @@ static void frame(const DK2ML_Event *event, void *user) {
 }
 DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInfo *info) {
     (void)info; image = (uintptr_t)loader->ResolveSymbol("GameClient::UpdateCamera") - 0x187f70;
-    if (configure(loader, "Play replays at normal speed", "Plays recorded action at 100% speed and keeps the mission-ending slowdown.") ||
+    if (configure(loader, "Play replays at normal speed", "Plays recorded action at 100% speed and keeps the mission-ending slowdown.", false) ||
         !hook_named("GameClient::AdvanceSnapshot", 0x183990, advance_pre, advance_post) ||
         api->Subscribe(DK2ML_EVENT_FRAME, frame, NULL) != DK2ML_OK) return 1;
     api->Log("Ready: normal-speed replay action and original mission-ending slowdown.");

@@ -1,11 +1,12 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <stdbool.h>
 #include <wchar.h>
 #include <stdio.h>
 #include "../enemy_autopause/sdk/include/dk2ml.h"
 #include "qol_ui.h"
 
-DK2ML_PLUGIN_MANIFEST(3,"QOL Tweaks","0.2.28-dev","Rake5000","",112);
+DK2ML_PLUGIN_MANIFEST(3,"QOL Tweaks","0.2.29-dev","Rake5000","",112);
 
 // Persistent per-feature API copies preserve the legacy configuration namespace.
 // Do not merge translation units: their private state intentionally stays isolated.
@@ -23,6 +24,7 @@ extern int qol_speed_init(const DK2ML_API *,const DK2ML_PluginInfo *);
 
 DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo *info){
     if(!loader||loader->apiVersion<3)return 1;
+    const bool basic_113=loader->GetGameVersion()==113;
     if(qol_ui_prepare(loader))return 1;
     if(GetModuleHandleW(L"DK2SpeedChanger.addon64")){
         loader->Log("QOL Tweaks refused: legacy ReShade Speed Changer is loaded.");return 1;
@@ -63,13 +65,17 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader,const DK2ML_PluginInfo
         feature_api[i].AddOption=qol_collect_option;
     }
     for(unsigned i=0;i<4;i++){
+        if(basic_113&&(i==1||i==2))continue;
         if(initialize[i](&feature_api[i],info)){
             loader->Log("QOL Tweaks initialization failed in %ls; loader must deactivate this plugin's hooks.",legacy[i]);
             return 1;
         }
     }
-    if(qol_speed_init(&feature_api[3],info))return 1;
+    if(!basic_113&&qol_speed_init(&feature_api[3],info))return 1;
     if(qol_ui_register())return 1;
-    loader->Log("QOL Tweaks ready: hotkeys including breaching, native Speed Changer, normal-speed replays, names and shared settings.");
+    if(basic_113)
+        loader->Log("QOL Tweaks 1.13 ready: basic waypoint-wheel hotkeys and shared settings. Other QOL features await porting.");
+    else
+        loader->Log("QOL Tweaks ready: hotkeys including breaching, native Speed Changer, normal-speed replays, names and shared settings.");
     return 0;
 }

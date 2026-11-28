@@ -19,6 +19,7 @@ static const wchar_t *mock_dir(void){return test_dir;}
 static void mock_log(const char *format,...){(void)format;}
 static void *mock_resolve(const char *name){(void)name;return (void*)(uintptr_t)1;}
 static DK2ML_Status mock_enum(const char *type,const char *name,int64_t *value){(void)type;(void)name;*value=1;return DK2ML_OK;}
+static uint32_t mock_version_113(void){return 113;}
 static DK2ML_Status mock_add(const DK2ML_Option *option){
  assert(option->structSize==sizeof *option);registered++;
  if(option->type==DK2ML_OPTION_HEADER){headers++;assert(strcmp(option->label,"Normal Speed Replays")!=0);for(int i=0;i<5;i++)if(strcmp(option->label,sections[i])==0)section_seen[i]++;}
@@ -74,6 +75,20 @@ int main(void){
  bindings[18].key='G';binding_changed(NULL,(void*)(uintptr_t)18);
  reset_settings(0);
  assert(conflict_notice&&bindings[0].key=='K'&&bindings[18].key=='G');
+
+ // The test build exposes only the shortcuts it implements and keeps full-version preferences.
+ bindings[18].key='M';binding_changed(NULL,(void*)(uintptr_t)18);
+ loader.GetGameVersion=mock_version_113;
+ assert(qol_ui_prepare(&loader)==0&&basic_113);
+ option_count=0;registered=0;headers=0;memset(section_seen,0,sizeof section_seen);
+ collect("Enable additional hotkeys",DK2ML_OPTION_BOOL,&order_enabled);
+ assert(qol_ui_register()==0);
+ assert(headers==3&&registered==25&&section_seen[0]==1&&section_seen[1]==1&&!section_seen[2]);
+ assert(qol_basic_action('G')&&qol_basic_action('J')&&qol_basic_action('4'));
+ assert(!qol_basic_action('F')&&!qol_basic_action(QOL_AUTO_A)&&!qol_basic_action(QOL_CLEAR_ALL));
+ reset_settings(0);
+ assert(bindings[0].key=='G'&&bindings[18].key=='M');
+ puts("PASS: 1.13 exposes the basic shortcut subset and preserves unavailable bindings.");
  assert(DeleteFileW(binding_path));assert(RemoveDirectoryW(unique));
  puts("PASS: all 24 bindings, exact modifiers, cross-section conflict rejection, rebind persistence, capture/cancel/unbind, five groups and fixed reset defaults with callbacks after value restoration.");
  return 0;

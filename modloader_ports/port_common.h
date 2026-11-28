@@ -26,7 +26,7 @@ static void draw_shared_settings(void) {
     imgui_text("%s",shared_section);
     if(imgui_checkbox(shared_section,&enabled))settings_changed(NULL,NULL);
 }
-static int configure(const DK2ML_API *loader, const char *label, const char *description) {
+static int configure(const DK2ML_API *loader, const char *label, const char *description, bool verified_port) {
     api = loader;
     const char *interface_name=NULL;
     if (strcmp(label,"Enable additional hotkeys")==0) {
@@ -39,7 +39,7 @@ static int configure(const DK2ML_API *loader, const char *label, const char *des
     imgui_checkbox=(bool (*)(const char *,bool *))api->ResolveSymbol("ImGui::Checkbox");
     imgui_text=(void (*)(const char *,...))api->ResolveSymbol("ImGui::Text");
     if(!imgui_checkbox||!imgui_text)return 1;
-    if (!supported_image()) {
+    if (!verified_port && !supported_image()) {
         api->Log("Unsupported executable build");
         return 1;
     }
