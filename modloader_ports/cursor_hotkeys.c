@@ -169,6 +169,9 @@ static unsigned binding_for(unsigned key) {
 // Hover-body clear uses the same per-human/action commands as ResetSavedPlan,
 // never the mission-wide reset itself. Resolve IDs again during normal input update.
 static bool try_toggle_order(unsigned binding);
+#ifdef R5K_QOL_UI
+static bool try_toggle_go_code_113(unsigned binding);
+#endif
 static void dispatch_grenade(unsigned binding);
 static void dispatch_door(unsigned binding);
 static void dispatch_suppression(void);
@@ -185,9 +188,19 @@ static bool clear_button_available(unsigned binding){
     unsigned char accepts=0;
     return button&&api->GuiIsShown(button)&&read_at((uintptr_t)button+144,&accepts,1)&&accepts;
 }
+static LRESULT close_waypoint_wheel(WNDPROC forward,HWND window) {
+    LPARAM scan=(LPARAM)MapVirtualKeyW(VK_ESCAPE,MAPVK_VK_TO_VSC)<<16;
+    LRESULT result=CallWindowProcW(forward,window,WM_KEYDOWN,VK_ESCAPE,scan|1);
+    CallWindowProcW(forward,window,WM_KEYUP,VK_ESCAPE,scan|0xc0000001u);
+    return result;
+}
+
 static LRESULT send_toggle_key(WNDPROC forward,HWND window,UINT message,WPARAM key,LPARAM data,unsigned binding) {
 #ifdef R5K_QOL_UI
-    if(basic_113)return CallWindowProcW(forward,window,message,key,data);
+    if(basic_113){
+        if(message==WM_KEYDOWN&&try_toggle_go_code_113(binding))return close_waypoint_wheel(forward,window);
+        return CallWindowProcW(forward,window,message,key,data);
+    }
 #endif
     bool grenade=binding==BIND_FLASH||binding==BIND_FRAG;
     bool door=binding==BIND_DOOR||binding==BIND_DOOR_ONLY;
@@ -201,10 +214,7 @@ static LRESULT send_toggle_key(WNDPROC forward,HWND window,UINT message,WPARAM k
     if(message==WM_KEYDOWN&&try_toggle_order(binding)) {
         // Native XML's matching key action is bypassed after removal. Escape uses
         // the wheel's existing hide handler, preserving its normal input cleanup.
-        LPARAM scan=(LPARAM)MapVirtualKeyW(VK_ESCAPE,MAPVK_VK_TO_VSC)<<16;
-        LRESULT result=CallWindowProcW(forward,window,WM_KEYDOWN,VK_ESCAPE,scan|1);
-        CallWindowProcW(forward,window,WM_KEYUP,VK_ESCAPE,scan|0xc0000001u);
-        return result;
+        return close_waypoint_wheel(forward,window);
     }
     if(message==WM_KEYDOWN&&play_gui_click&&clear_button_available(binding))play_gui_click();
     return CallWindowProcW(forward,window,message,key,data);
@@ -338,6 +348,56 @@ static int preserve_plan_save(DK2ML_Regs *regs,void *user) {
     if((uintptr_t)DK2ML_Arg(regs,3)==client+0x7e280)protected_plan_client=protected_plan_map=0;
     return DK2ML_CALL_ORIGINAL;
 }
+#ifdef R5K_QOL_UI
+static uintptr_t global_client_113,waypoint_type_113;
+static bool (*waypoint_event_113)(void*,unsigned,const void*);
+enum { waypoint_pool_limit_113=12000 };
+static unsigned go_code_unchecked_113;
+static int wheel_id_offset_113,entity_pool_offset_113,go_code_offset_113,owner_offset_113;
+
+static bool resolve_go_code_toggle_113(void) {
+    global_client_113=(uintptr_t)api->ResolveSymbol("g_pGameClient");
+    waypoint_type_113=(uintptr_t)api->ResolveSymbol("ActionWP_Client::GetType");
+    waypoint_event_113=(void*)api->ResolveSymbol("GameGUI::WaypointMenu_OnEvent");
+    int user_data=api->GetFieldOffset("GUI::Item","m_userData");
+    int id=api->GetFieldOffset("GUI::sUserData","id");
+    int action=api->GetFieldOffset("ActionWP_Client","m_action");
+    int go_code=api->GetFieldOffset("sActionWP","gocode");
+    int owner=api->GetFieldOffset("sActionWP","ownerId");
+    entity_pool_offset_113=api->GetFieldOffset("GameCommon","m_entityPool");
+    int64_t unchecked=0;
+    // These layouts and the unchecked case were checked against the 1.13 handler.
+    if(!global_client_113||!waypoint_type_113||!waypoint_event_113||
+        user_data!=848||id!=8||action!=496||go_code!=56||owner!=48||entity_pool_offset_113!=744||
+        api->GetTypeSize("GUI::sEventParams")!=24||
+        api->GetEnumValue("GUI::Events::eEventType","GUI_GAME_WAYPOINT_GOCODE_UNCHECKED",&unchecked)!=DK2ML_OK||
+        unchecked!=86)return false;
+    wheel_id_offset_113=user_data+id;
+    go_code_offset_113=action+go_code;
+    owner_offset_113=action+owner;
+    go_code_unchecked_113=(unsigned)unchecked;
+    return true;
+}
+
+static bool try_toggle_go_code_113(unsigned binding) {
+    if(binding<'1'||binding>'4'||!go_code_unchecked_113)return false;
+    uintptr_t gui=0,wheel=0,client=0,waypoint=0,vtable=0,type=0,owner=0;
+    uint32_t id=0,go_code=0,owner_id=0;
+    if(!read_at(global_gui,&gui,sizeof gui)||!gui||
+        !read_at(gui+wheel_offset,&wheel,sizeof wheel)||!wheel||
+        !read_at(wheel+wheel_id_offset_113,&id,sizeof id)||!id||id>=waypoint_pool_limit_113||
+        !read_at(global_client_113,&client,sizeof client)||!client||
+        !read_at(client+entity_pool_offset_113+id*sizeof waypoint,&waypoint,sizeof waypoint)||!waypoint||
+        !read_at(waypoint,&vtable,sizeof vtable)||!vtable||
+        !read_at(vtable+sizeof type,&type,sizeof type)||type!=waypoint_type_113||
+        !read_at(waypoint+go_code_offset_113,&go_code,sizeof go_code)||go_code!=binding-'1'+1||
+        !read_at(waypoint+owner_offset_113,&owner_id,sizeof owner_id)||!owner_id||owner_id>=waypoint_pool_limit_113||
+        !read_at(client+entity_pool_offset_113+owner_id*sizeof owner,&owner,sizeof owner)||!owner)return false;
+    const uint64_t parameters[3]={0};
+    return waypoint_event_113((void*)gui,go_code_unchecked_113,parameters);
+}
+#endif
+
 static bool try_toggle_order(unsigned binding) {
     unsigned event=0,requested=0;
     if(binding>='1'&&binding<='4'){event=77;requested=binding-'1'+1;}
@@ -945,6 +1005,9 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API *loader, const DK2ML_PluginInf
             api->Log("Cursor Hotkeys 1.13: waypoint menu or input layout unavailable.");
             return 1;
         }
+        if(resolve_go_code_toggle_113())
+            api->Log("Cursor Hotkeys 1.13: native go-code removal ready.");
+        else api->Log("Cursor Hotkeys 1.13: go-code removal unavailable; assignment still active.");
         if(configure(loader,"Enable additional hotkeys","Waypoint-wheel movement, reload, go-code and path shortcuts.",true)||
             !install_window_bridge()||
             api->Subscribe(DK2ML_EVENT_FRAME,frame,NULL)!=DK2ML_OK)return 1;
