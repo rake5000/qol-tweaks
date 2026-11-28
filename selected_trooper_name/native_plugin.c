@@ -12,6 +12,7 @@ static const DK2ML_API*api;
 static uintptr_t image;
 static bool names_113;
 static unsigned renderer_camera, camera_view, camera_projection, camera_left, client_viewport, client_player;
+static unsigned client_camera;
 static bool enabled=true;
 static bool hover_names=true,always_names=false;
 static float size=14,gap=12;
@@ -67,6 +68,30 @@ static bool eligible_human(uintptr_t human,uintptr_t client){
     return player<32&&*(uint32_t*)(human+0x32c)==(1u<<player)&&*(unsigned char*)(human+0x333)&&*(float*)(human+40)>0;
 }
 static bool wants_name(bool selected,bool hovered){return selected||always_names||(hover_names&&hovered);}
+static bool project_trooper(uintptr_t client,const float point[3],float *x,float *y){
+    if(names_113){
+        // The named 1.13 screen conversion returns GUI coordinates. Project
+        // into the camera viewport directly for the renderer's label pass.
+        const float *view=(const float*)(client+client_camera+camera_view);
+        const float *projection=(const float*)(client+client_camera+camera_projection);
+        float eye[4],clip[4];
+        for(unsigned i=0;i<4;i++)
+            eye[i]=view[i*4]*point[0]+view[i*4+1]*point[1]+view[i*4+2]*point[2]+view[i*4+3];
+        for(unsigned i=0;i<4;i++)
+            clip[i]=projection[i*4]*eye[0]+projection[i*4+1]*eye[1]+projection[i*4+2]*eye[2]+projection[i*4+3]*eye[3];
+        if(!isfinite(clip[3])||clip[3]<=0)return false;
+        *x=0.5f*(clip[0]/clip[3]+1.0f);
+        *y=0.5f*(clip[1]/clip[3]+1.0f);
+    }else{
+        float screen[2];
+        map_to_screen((void*)client,screen,point);
+        const int *viewport=(const int*)(client+client_viewport);
+        if(viewport[2]<=0||viewport[3]<=0)return false;
+        *x=(screen[0]-viewport[0])/(float)viewport[2];
+        *y=(screen[1]-viewport[1])/(float)viewport[3];
+    }
+    return isfinite(*x)&&isfinite(*y)&&*x>=0&&*x<=1&&*y>=0&&*y<=1;
+}
 static int before_status(DK2ML_Regs*r,void*u){(void)u;r->scratch[0]=DK2ML_Arg(r,0);r->scratch[1]=DK2ML_Arg(r,5);return 0;}
 static void after_status(DK2ML_Regs*r,void*u){
     (void)u;if(!enabled)return;
@@ -84,12 +109,7 @@ static void after_status(DK2ML_Regs*r,void*u){
     if(!length||length==52)return;
     float point[3];memcpy(point,(void*)(human+0x6c),sizeof(point));
     for(int k=0;k<3;k++)if(!isfinite(point[k]))return;
-    float screen[2];map_to_screen((void*)client,screen,point);
-    const int*viewport=(void*)(client+client_viewport);
-    if(viewport[2]<=0||viewport[3]<=0)return;
-    float x=(screen[0]-viewport[0])/(float)viewport[2];
-    float y=(screen[1]-viewport[1])/(float)viewport[3];
-    if(!isfinite(x)||!isfinite(y)||x<0||x>1||y<0||y>1)return;
+    float x,y;if(!project_trooper(client,point,&x,&y))return;
     CapturedLabel*label=&captures[capture_count++];label->human=human;
     memcpy(label->name,name,(size_t)length);label->name[length]=0;
     label->screen[0]=x;label->screen[1]=y;
@@ -181,18 +201,20 @@ DK2ML_EXPORT int DK2ML_PluginInit(const DK2ML_API*loader,const DK2ML_PluginInfo*
     renderer_camera=names_113?0x528:0x4f8;
     camera_view=48;camera_projection=names_113?180:176;camera_left=names_113?156:152;
     client_viewport=names_113?0x107584:0x10755c;
+    client_camera=0x107294;
     client_player=names_113?0x10583c:0x10581c;
     if(api->GetFieldOffset("Human_Client","m_humanId")!=0x220||
         api->GetFieldOffset("GameRenderer","m_camera")!=(int)renderer_camera||
         api->GetFieldOffset("Camera","m_matView")!=(int)camera_view||
         api->GetFieldOffset("Camera","m_matProjection")!=(int)camera_projection||
         api->GetFieldOffset("Camera","m_left")!=(int)camera_left||
-        api->GetFieldOffset("GameClient","m_viewport")!=(int)client_viewport)return 1;
+        api->GetFieldOffset("GameClient","m_viewport")!=(int)client_viewport||
+        (names_113&&api->GetFieldOffset("GameClient","m_camera")!=(int)client_camera))return 1;
     if(!resolve((void**)&hovered_human,"GameInput::GetHoveredHuman",names_113?0x135e60:0x137160)||
         !resolve((void**)&selected_human,"GameInput::GetSelectedHuman",names_113?0x135dc0:0x137090)||
         !resolve((void**)&build_letters,"Render2D::BuildFontLetters",names_113?0x1aa740:0x1a87f0)||
         !resolve((void**)&print_text,"Render2D::PrintText_Immediate",names_113?0x1ab480:0x1a97d0)||
-        !resolve((void**)&map_to_screen,"?ConvertMapToScreenCoords@GameClient@@QEBA?AVVector2@@VVector3@@@Z",names_113?0xfab00:0x184d70))return 1;
+        (!names_113&&!resolve((void**)&map_to_screen,"?ConvertMapToScreenCoords@GameClient@@QEBA?AVVector2@@VVector3@@@Z",0x184d70)))return 1;
 
     checkbox=(void*)api->ResolveSymbol("ImGui::Checkbox");slider=(void*)api->ResolveSymbol("ImGui::SliderScalar");text=(void*)api->ResolveSymbol("ImGui::Text");
     int64_t type;if(!checkbox||!slider||!text||api->GetEnumValue("ImGuiDataType_","ImGuiDataType_Float",&type)!=DK2ML_OK)return 1;float_type=(int)type;
