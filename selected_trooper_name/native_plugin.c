@@ -162,21 +162,6 @@ static void after_draw_labels(DK2ML_Regs *regs,void *user){
 }
 #endif
 
-static bool names_menu_open(void){
-    if(!names_113)return api->IsGameMenuOpen()!=0;
-    // Only pause menus suppress names in 1.13. Waypoint UI can be
-    // active during path hover, when names must remain visible.
-    static const char *const panels[]={
-        "Menu_Ingame","Menu_Ingame_Campaign","Menu_Ingame_Replay",
-        "Menu_Ingame_OldReplay"
-    };
-    for(unsigned i=0;i<sizeof panels/sizeof panels[0];i++){
-        void *panel=api->GuiFind(NULL,panels[i]);
-        if(panel&&api->GuiIsShown(panel))return true;
-    }
-    return false;
-}
-
 static int draw_label(DK2ML_Regs*r,void*u){
     (void)u;
     unsigned count_labels=enabled?capture_count:0;
@@ -185,7 +170,10 @@ static int draw_label(DK2ML_Regs*r,void*u){
     r->scratch[0]=DK2ML_Arg(r,0);
 #endif
     uintptr_t renderer=DK2ML_Arg(r,0);
-    if(!count_labels||!renderer||!*(bool*)(renderer+0x13)||names_menu_open())return 0;
+    if(!count_labels||!renderer||!*(bool*)(renderer+0x13))return 0;
+    // 1.13 draws the mission menu over this pass. Its reported visibility
+    // can suppress every name even when the world remains visible.
+    if(!names_113&&api->IsGameMenuOpen())return 0;
     uintptr_t client=0;
     if(names_113){
         client=pointer(image+0x1038c40);
