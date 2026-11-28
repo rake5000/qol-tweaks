@@ -104,23 +104,22 @@ static void draw_speed_indicator(uintptr_t renderer, void *font, int value){
     int count=build_letters(label,length,font,vertices,indices,0);
     if(count<=0||count>length)return;
 
-    float right=vertices[0].p[0],bottom=vertices[0].p[1],top=bottom;
+    float right=vertices[0].p[0],bottom=vertices[0].p[1];
     for(int i=1;i<count*4;i++){
         right=fmaxf(right,vertices[i].p[0]);
         bottom=fminf(bottom,vertices[i].p[1]);
-        top=fmaxf(top,vertices[i].p[1]);
     }
     const float *camera=(const float*)(renderer+0x4f8);
     float height=fabsf(camera[0xa4/4]-camera[0xa0/4]);
     float font_height=(float)*(int*)((uintptr_t)font+0x30);
     if(!isfinite(height)||height<=0||font_height<=0)return;
 
-    // Right-align inside the clock panel and centre vertically on its timer.
+    // Align the bottom of the percentage digits with the timer digits.
     float scale=height*(16.0f/1440.0f)/font_height;
     float model[16]={0};
     model[0]=model[5]=scale;model[10]=model[15]=1;
     model[3]=(camera[0x98/4]+camera[0x9c/4])*0.5f+height*(106.0f/1440.0f)-right*scale;
-    model[7]=fminf(camera[0xa0/4],camera[0xa4/4])+height*(62.0f/1440.0f)-(top+bottom)*0.5f*scale;
+    model[7]=fminf(camera[0xa0/4],camera[0xa4/4])+height*(47.0f/1440.0f)-bottom*scale;
     print_text(model,(void*)(renderer+0x5a8),(void*)(renderer+0x528),font,
         value<0?0xff8fdbff:0xffdbe5e7,label);
 }

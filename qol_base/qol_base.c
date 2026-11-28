@@ -5,7 +5,7 @@
 #include "../enemy_autopause/sdk/include/dk2ml.h"
 #include "qol_ui.h"
 
-DK2ML_PLUGIN_MANIFEST(3,"QOL Tweaks","0.2.24-dev","Rake5000","",112);
+DK2ML_PLUGIN_MANIFEST(3,"QOL Tweaks","0.2.25-dev","Rake5000","",112);
 
 // Persistent per-feature API copies preserve the legacy configuration namespace.
 // Do not merge translation units: their private state intentionally stays isolated.
